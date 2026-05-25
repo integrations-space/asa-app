@@ -1,24 +1,27 @@
 # AISurveyApp (ASA) - Complete Deployment Guide
 
 ## Overview
-AISurveyApp is an autonomous AI literacy assessment platform for architects. Participants scan a QR code, answer 10 MCQs, and receive automated competency reports within 15 minutes.
+AISurveyApp is an autonomous AI literacy assessment platform for architects. Participants scan a QR code, answer 10 MCQs, get a personal report by email within seconds, and receive a cohort/group report later once their session is complete.
 
 ---
 
 ## PART 1: DEPLOYMENT ARCHITECTURE
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    PARTICIPANT FLOW                         │
-├─────────────────────────────────────────────────────────────┤
-│  1. Scan QR Code → Web App                                  │
-│  2. Register (Group, Email, Firm Size)                      │
-│  3. Answer 10 MCQs                                          │
-│  4. Submit → Google Sheets                                  │
-│  5. Auto-trigger Reports (15 mins)                          │
-│  6. Email Part 1 (Group Summary) + Part 2 (Individual)      │
-│  7. Logged to Google Sheets for future reference            │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    PARTICIPANT FLOW                             │
+├─────────────────────────────────────────────────────────────────┤
+│  1. Scan QR Code → Web App                                      │
+│  2. Register (Group, Email, Firm Size)                          │
+│  3. Answer 10 MCQs                                              │
+│  4. Submit → Google Sheets                                      │
+│  5. PERSONAL REPORT (Part 2) emailed within seconds             │
+│  6. COHORT REPORT (Part 1) emailed later, once per session:     │
+│     • Option 1 — auto at 95% of expected headcount, OR          │
+│     • Option 2 — admin clicks "Send Group Report Now" in        │
+│       the dashboard                                             │
+│  7. All responses logged to Google Sheets                       │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -49,26 +52,27 @@ AISurveyApp is an autonomous AI literacy assessment platform for architects. Par
    - Who has access: "Anyone"
 6. **Copy the deployment URL** — you'll need this for the React app
 
-### Step 3: Set Up Time-based Trigger (for automated email sending)
+### Step 3: (Optional) Set Up Daily Fail-Safe Trigger
+
+Personal reports send immediately on submit — no trigger needed. The cohort report sends automatically at 95% (Option 1) or on the admin's button press (Option 2). If you want a belt-and-braces fallback that catches sessions where the admin forgets and the headcount never lands:
 
 1. In Apps Script, go to **Triggers** (left sidebar, clock icon)
 2. Click **Create new trigger**
 3. Configure:
-   - Function: `processReportQueue`
+   - Function: `processStaleSessions`
    - Deployment: Head
    - Event source: Time-driven
-   - Type: Minutes timer
-   - Interval: Every 5 minutes
+   - Type: Day timer (any hour)
 4. Click **Save**
 
-This ensures emails are sent every 5 minutes to anyone waiting in the queue.
+`processStaleSessions` scans `ASA_Sessions` once a day and fires the cohort report for any session that has responses but hasn't sent its group report after 7 days (configurable via the `STALE_SESSION_DAYS` Script Property).
 
 ### Step 4: Test Google Apps Script
 
 1. In Apps Script, go to **Run** → Select `testEmailReport`
 2. First time: Grant permissions (click "Review permissions" and approve)
-3. Check Gmail inbox for test email
-4. If successful, you're ready to integrate with React app
+3. Check Gmail inbox for the test personal report
+4. To test the cohort/group report end-to-end: run `testGroupReport('YOUR-SESSION-ID')` after at least one real submission exists for that session.
 
 ### Step 5: Deploy React App to Vercel
 
@@ -166,17 +170,22 @@ For multiple simultaneous sessions:
 4. Submit responses
 5. Receive immediate summary score
 
-### After the Session (Auto 15 mins)
-- Part 1 (Group Summary): Emailed to all participants
-  - Cohort size, average score, tier distribution
-  - Key insights about the group
-  
-- Part 2 (Individual Report): Emailed to each participant
+### After Each Submission (Immediate)
+- **Part 2 — Individual Report**: emailed within seconds of submit
   - Personal score & competency level
-  - Personalized recommendations
-  - Next steps for learning
+  - AI-generated, question-by-question feedback
+  - Recommendations + next steps for learning
+  - Note that a cohort report will follow once the session is complete
+- Response logged to Google Sheets with all metadata
 
-- Responses logged to Google Sheets with all metadata
+### After the Session is Complete (Cohort Report)
+- **Part 1 — Cohort Report**: emailed once to every respondent
+  - Cohort size, average / high / low scores, tier distribution
+  - AI-generated narrative on collective strengths + gaps
+- Two ways it fires (both supported; whichever happens first wins):
+  - **Option 1 (auto)** — if `totalParticipants` was set at session creation (e.g. `createSession('ASA-MORNING-01', 'admin@firm.com', 12)`), the email fires once `ceil(total × 0.95)` people have submitted.
+  - **Option 2 (manual)** — admin opens the session dashboard and clicks **Send Group Report Now**.
+- The send is idempotent (single send per session) — locked by the `Group Report Sent` flag in `ASA_Sessions`.
 
 ---
 
@@ -227,8 +236,11 @@ To measure improvement after the AI course:
 ### Issue: Session data not appearing in Google Sheets
 - **Solution:** Verify Google Apps Script was deployed correctly, check logs in Apps Script editor
 
-### Issue: Automated emails not arriving after 15 mins
-- **Solution:** Verify time-based trigger is set up correctly, check spam folder
+### Issue: Personal report email didn't arrive
+- **Solution:** Check spam folder; in the Apps Script editor open **Executions** and look for failed `sendIndividualReport` runs. Personal reports fire on submit — there is no delay.
+
+### Issue: Cohort/group report never sent
+- **Solution:** Open the admin dashboard for the session. If `totalParticipants` was set, check the progress line (need `ceil(total × 0.95)` submissions). Otherwise the admin must press **Send Group Report Now**. The optional daily `processStaleSessions` trigger covers sessions that stall.
 
 ---
 
@@ -266,15 +278,14 @@ In `generateIndividualReport()` function, customize:
 
 - [ ] Google Sheet created ("ASA_Responses")
 - [ ] Google Apps Script deployed with web app URL
-- [ ] Time-based trigger set (processReportQueue every 5 mins)
-- [ ] Test email sent successfully
-- [ ] React app deployed to Vercel
-- [ ] Google Apps Script URL updated in React app
+- [ ] *(Optional)* Daily `processStaleSessions` trigger set for stale-session fail-safe
+- [ ] `testEmailReport` run successfully (personal report received)
+- [ ] React app deployed to GitHub Pages (via the `Deploy to GitHub Pages` workflow on push to master)
+- [ ] `VITE_BACKEND_URL` secret set in repo → Settings → Secrets and variables → Actions (points to the Apps Script web app URL)
 - [ ] QR code generated and tested
 - [ ] QR code prints clearly and scans correctly
-- [ ] Admin key copied and secured
-- [ ] First survey session run successfully
-- [ ] Emails sent and received correctly
+- [ ] Per session: `createSession('ASA-XXX', 'admin@firm.com'[, totalParticipants])` run — admin key noted, decided Option 1 vs Option 2
+- [ ] First survey session run end-to-end: personal report received within seconds; cohort report received after 95% / button-press
 - [ ] Google Sheets updated with responses
 
 ---

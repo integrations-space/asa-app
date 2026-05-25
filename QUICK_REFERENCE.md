@@ -61,11 +61,11 @@ Answer 10 Questions (8 mins)
     ↓
 Submit & See Score
     ↓
-Wait 15 Minutes
+PERSONAL REPORT EMAIL — Part 2 (within seconds)
     ↓
-Receive Email Report
-  Part 1: Group Summary
-  Part 2: Personal Recommendations
+... cohort completes ...
+    ↓
+COHORT REPORT EMAIL — Part 1 (once per session, at 95% or admin trigger)
     ↓
 Data Logged to Google Sheets
 ```
@@ -100,9 +100,10 @@ Data Logged to Google Sheets
 |------|--------|
 | 0 mins | User submits survey |
 | Immediate | Response saved to Sheets |
-| 15 mins | Reports generated |
-| 20 mins | Emails sent to participants |
-| +5 mins buffer | All reports delivered |
+| Immediate | **Personal report (Part 2)** emailed |
+| When session hits 95% of `totalParticipants` (Option 1) | **Cohort report (Part 1)** auto-emailed to all |
+| When admin presses **Send Group Report Now** (Option 2) | **Cohort report (Part 1)** emailed to all |
+| Daily, if `processStaleSessions` trigger is set | Stale sessions (≥7 days, unsent) get their cohort report |
 
 ---
 
@@ -139,9 +140,9 @@ Data Logged to Google Sheets
 | Issue | Fix |
 |-------|-----|
 | QR won't scan | Increase size, ensure contrast |
-| Email not arriving | Check spam, verify Gmail limits |
+| Personal email not arriving | Check spam, Gmail rate limits, Apps Script Executions for `sendIndividualReport` |
 | Survey data missing | Verify Apps Script URL in code |
-| Delayed reports | Check time-based trigger active |
+| Cohort report not sent | Open admin dashboard — Option 1 needs `ceil(total × 0.95)` submissions; Option 2 needs admin to press **Send Group Report Now** |
 | Admin login fails | Verify admin key correct |
 
 ---
@@ -176,17 +177,20 @@ View:
 
 ## 📧 EMAIL REPORT PARTS
 
-### Part 1: Group Summary
-- Cohort size
-- Average score
-- Tier distribution (% in each level)
-- Key insights about group
-
-### Part 2: Individual Report
+### Part 2: Individual Report (sent within seconds of each submit)
 - Personal score & tier
-- What tier means
-- Personalized recommendations
-- Next steps for learning
+- AI-generated, question-by-question feedback
+- Personalised recommendations + next steps
+- Note that a cohort report will follow
+
+### Part 1: Cohort Report (sent once per session — Option 1 or Option 2)
+- Cohort size, average / high / low score
+- Tier distribution
+- AI narrative on collective strengths + gaps
+
+**Trigger:**
+- **Option 1 — auto at 95%**: pass `totalParticipants` to `createSession(...)`
+- **Option 2 — manual**: admin opens dashboard → **Send Group Report Now**
 
 ---
 
@@ -218,7 +222,7 @@ Export from Google Sheets:
 ## 📞 QUICK TROUBLESHOOTING
 
 **Q: How long does email take?**
-A: ~20 minutes (15 min wait + 5 min send)
+A: Personal report (Part 2) lands within seconds of submit. Cohort report (Part 1) fires once per session — automatically at 95% submission, or when the admin presses the dashboard button.
 
 **Q: Can same person retake?**
 A: Yes, but use Pre/Post tags to distinguish

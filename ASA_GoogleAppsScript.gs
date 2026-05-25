@@ -1139,3 +1139,71 @@ function testGroupReport(sessionId) {
   Logger.log(JSON.stringify(result));
   return result;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stale-session fail-safe
+//
+// Wire this up as a DAILY time-based trigger (Apps Script → Triggers → +Add):
+//   Function: processStaleSessions   Event source: Time-driven   Type: Day timer
+//
+// Purpose: catch sessions where neither path fires —
+//   • Option 1 was used but the cohort never hit the 95% threshold
+//     (e.g. some registrants no-show'd), AND
+//   • the admin forgot/declined to press the manual button.
+// After STALE_SESSION_DAYS days, any such session with at least one response
+// gets its cohort report blasted out and the flag flipped so it won't repeat.
+//
+// Tunable via Script Properties (Project Settings → Script Properties):
+//   STALE_SESSION_DAYS — integer days; default 7. Set higher for slow cohorts
+//                        (e.g. asynchronous courses), lower for same-day workshops.
+// ─────────────────────────────────────────────────────────────────────────────
+function processStaleSessions() {
+  const props = PropertiesService.getScriptProperties();
+  const days = Number(props.getProperty('STALE_SESSION_DAYS')) || 7;
+  const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+
+  const sheet = ensureAdminSheet_();
+  const data = sheet.getDataRange().getValues();
+  let fired = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const sessionId = row[ADMIN_COL.SESSION_ID];
+    const createdAt = row[ADMIN_COL.CREATED_AT];
+    const alreadySent = row[ADMIN_COL.GROUP_REPORT_SENT] === true;
+    if (!sessionId || alreadySent) continue;
+
+    const createdMs = new Date(createdAt).getTime();
+    if (isNaN(createdMs) || createdMs > cutoffMs) continue; // too young
+
+    const responses = getSessionResponses_(sessionId);
+    if (!responses.length) continue;                         // nothing to report on
+
+    Logger.log('Stale-session fail-safe firing for ' + sessionId +
+               ' (age ' + Math.floor((Date.now() - createdMs) / 86400000) + ' days, ' +
+               responses.length + ' response(s)).');
+    const result = sendGroupReportToCohort_(sessionId);
+    if (result.success) fired++;
+  }
+  Logger.log('processStaleSessions complete: ' + fired + ' cohort report(s) sent.');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-session wrapper templates
+//
+// Apps Script's function dropdown only lists zero-arg functions, so to invoke
+// createSession with arguments you wrap it. Copy one of the patterns below
+// and rename per cohort — they show up as runnable entries in the dropdown
+// the moment they're saved. Examples below are illustrative; replace email /
+// session ID / headcount with your real values.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Option 1 — auto-send cohort report at 95% of expected headcount.
+function mintMorning01_Option1() {
+  return createSession('ASA-MORNING-01', 'admin@example.com', 12);
+}
+
+// Option 2 — admin will press "Send Group Report Now" from the dashboard.
+function mintAfternoon01_Option2() {
+  return createSession('ASA-AFTERNOON-01', 'admin@example.com');
+}

@@ -10,8 +10,8 @@ AISurveyApp is a mobile-first web application that:
 
 ✅ **Administers** 10 MCQ survey on AI literacy (from your PDF)  
 ✅ **Auto-calculates** competency scores and tiers  
-✅ **Generates Reports** automatically after 15 minutes  
-✅ **Sends Emails** with group summary + individual recommendations  
+✅ **Sends personal reports** immediately on submit (Part 2 — individual)  
+✅ **Sends cohort reports** separately (Part 1 — group): auto-fires at 95% of expected headcount, or admin-triggered from the dashboard  
 ✅ **Logs Data** to Google Sheets for future reference  
 ✅ **Supports Repeat Surveys** to measure post-course improvement  
 ✅ **Manages Multiple Sessions** simultaneously with unique QR codes  
@@ -49,16 +49,19 @@ The guide covers:
 - Progress indicator during survey
 - Input validation and duplicate prevention
 
-### 📊 Automatic Reporting
-**Part 1: Group Summary** (sent to all participants)
-- Cohort size and average score
-- Score distribution by competency tier
-- Key insights about group performance
+### 📊 Two-Email Reporting Flow
 
-**Part 2: Individual Report** (personalized to each participant)
+**Part 2: Individual Report** — sent **immediately** when each participant submits.
 - Personal score and competency level
-- Personalized recommendations to level up
-- Next steps and encouragement
+- AI-generated, personalised feedback per question
+- Recommendations + next steps tailored to their tier
+- Notes that a separate cohort report will follow
+
+**Part 1: Cohort Report** — sent **once** to every participant when the session is complete. Two triggers, both supported per session:
+- **Option 1 (auto, 95% threshold)** — set `totalParticipants` at session creation, e.g. `createSession('ASA-MORNING-01', 'admin@firm.com', 12)`. The cohort email fires automatically once `ceil(total × 0.95)` people have submitted.
+- **Option 2 (manual)** — omit the headcount, then click **Send Group Report Now** in the admin dashboard whenever ready.
+
+Both triggers are idempotent: the cohort email goes out at most once per session, locked by a flag in the `ASA_Sessions` sheet.
 
 ### 🗂️ Data Management
 - Sequentially tagged responses in Google Sheets
@@ -181,9 +184,8 @@ python qr_generator.py https://asa-app.vercel.app
 2. **Enters details** → Group/Session, Firm Size, Email, Mobile (optional)
 3. **Answers 10 questions** → Sees progress bar (Q1/10, Q2/10, etc.)
 4. **Gets immediate score** → "You scored 7/10"
-5. **Waits 15 minutes** → Receives detailed reports via email:
-   - **Part 1**: How their cohort performed
-   - **Part 2**: Personal recommendations
+5. **Receives personal report email within seconds** — score, tier, AI-generated feedback, recommendations.
+6. **Receives cohort report email later** — once 95% of the cohort has submitted (Option 1) or the admin presses the dashboard button (Option 2).
 
 ### From Administrator Perspective
 
@@ -261,9 +263,10 @@ In `ASA_Complete.jsx`:
 | Event | Timing | Action |
 |-------|--------|--------|
 | Participant submits | Immediate | Response stored in Sheets |
-| Auto-report trigger | After 15 mins | Report queued |
-| Email Part 1 & 2 | Within 5 mins of trigger | Sent to participant email |
-| Data log | Concurrent | Saved to Sheets with timestamp |
+| Personal report (Part 2) | Immediate | Emailed within seconds of submit |
+| Cohort report (Part 1) — Option 1 | When 95% of `totalParticipants` have submitted | Auto-emails to all respondents, once per session |
+| Cohort report (Part 1) — Option 2 | When admin clicks **Send Group Report Now** | Same email blast, once per session |
+| Stale-cohort fail-safe (optional) | Daily, when set up as a time-based trigger on `processStaleSessions` | Sends cohort report for any session ≥ 7 days old that hasn't fired yet |
 
 ---
 
@@ -310,8 +313,11 @@ In `ASA_Complete.jsx`:
 ### "Survey data not appearing in Sheets"
 → Verify Apps Script deployment URL is correct, check browser console
 
-### "Automated reports delayed"
-→ Check time-based trigger in Apps Script, verify Gmail isn't rate-limited
+### "Personal report didn't arrive"
+→ Check Gmail rate limits + spam folder; review Apps Script Executions for `sendIndividualReport` errors. Personal reports fire on submit, not on a delay.
+
+### "Cohort/group report never sent"
+→ Check the **Cohort Group Report** panel in the admin dashboard. If `totalParticipants` was set, confirm enough people have submitted (need `ceil(total × 0.95)`); otherwise the admin needs to press **Send Group Report Now**. The optional `processStaleSessions` daily trigger catches sessions that fall through the cracks.
 
 ### "Admin dashboard not loading"
 → Verify admin key is correct, check browser cookies/storage
@@ -379,7 +385,7 @@ To measure improvement after AI training:
 3. **Backup link**: Always have URL backup if QR fails
 4. **Email testing**: Verify test email arrives before live session
 5. **Mobile testing**: Test on actual mobile devices
-6. **Timing**: Allow 15 mins buffer after survey for report generation
+6. **Timing**: Personal reports go out within seconds; the cohort report waits for 95% completion (Option 1) or your dashboard button (Option 2) — plan the session debrief accordingly
 7. **Batch sessions**: Run multiple sessions with unique QR codes per group
 8. **Data backup**: Export Google Sheets monthly as CSV backup
 

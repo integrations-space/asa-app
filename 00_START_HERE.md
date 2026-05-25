@@ -106,11 +106,11 @@ python qr_generator.py https://your-app-url.vercel.app
 1. Scans QR code
 2. Enters email & firm size
 3. Answers 10 questions (8 mins)
-4. Gets immediate score
-5. Waits 15 minutes
-6. Receives email with:
-   - Part 1: Group summary
-   - Part 2: Personal recommendations
+4. Gets immediate on-screen score
+5. Receives PERSONAL report email within seconds (Part 2)
+6. Receives COHORT report email later (Part 1):
+   - Option 1 — auto-sent at 95% of expected headcount
+   - Option 2 — sent when admin clicks "Send Group Report Now"
 ```
 
 ### Your Data
@@ -261,14 +261,14 @@ Before going live:
 
 - [ ] Google Sheet created
 - [ ] Google Apps Script deployed (have URL)
-- [ ] React app deployed to Vercel (have URL)
-- [ ] Google Apps Script URL added to React code
-- [ ] Time-based trigger set in Apps Script
-- [ ] Test email sent successfully
+- [ ] React app deployed (GitHub Pages — auto-deploys on push to master via `.github/workflows/deploy.yml`)
+- [ ] `VITE_BACKEND_URL` GitHub secret set to the Apps Script web app URL
+- [ ] *(Optional)* Daily `processStaleSessions` trigger set as belt-and-braces fallback
+- [ ] `testEmailReport` run — personal report received
 - [ ] QR code generated & prints clearly
 - [ ] QR code scans on mobile device
-- [ ] Test survey completed end-to-end
-- [ ] Report email received (wait 20 mins)
+- [ ] Test survey completed end-to-end (personal report within seconds)
+- [ ] Cohort report received after 95% / dashboard button press
 - [ ] Data visible in Google Sheets
 - [ ] Admin dashboard loads correctly
 
