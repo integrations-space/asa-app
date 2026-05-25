@@ -18,6 +18,29 @@ AISurveyApp is a mobile-first web application that:
 
 ---
 
+## 📋 Customise the Survey (Bring Your Own Questionnaire)
+
+This app is fully **config-driven**. Swap in any survey by editing a single file — no engine code changes needed.
+
+**📖 [Full Questionnaire Format Guide →](QUESTIONNAIRE_FORMAT.md)**
+
+🔗 Publicly shareable link (renders on GitHub):
+<https://github.com/integrations-space/asa-app/blob/master/QUESTIONNAIRE_FORMAT.md>
+
+The guide covers:
+- The four supported question types — `mcq`, `mcq_other` (dropdown + "Other" text), `text`, `scale`
+- Registration field schema and URL pre-fill behaviour
+- Scoring tiers and how `correct: -1` marks unscored reflection questions
+- A complete fill-in **JSON template** a non-developer can hand to a maintainer
+
+**Workflow in 3 steps:**
+
+1. Fill in `asa-app/src/config/survey.config.js` (or the JSON template) with your questions, tiers, and registration fields.
+2. Commit and push to `master` — GitHub Actions auto-deploys to GitHub Pages within ~1 minute.
+3. *(If scoring rules changed)* Update the `QUESTIONS` array in `ASA_GoogleAppsScript.gs` and redeploy as a new Apps Script version.
+
+---
+
 ## Key Features
 
 ### 📱 Mobile-First Design
