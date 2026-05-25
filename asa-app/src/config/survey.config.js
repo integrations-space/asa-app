@@ -48,7 +48,7 @@ export const config = {
       type: 'text',
       placeholder: 'e.g., ASA-MORNING-01',
       required: true,
-      readOnly: true, // pre-filled from URL ?sessionId=...
+      // Pre-filled from URL ?sessionId=... but editable if needed
     },
     {
       name: 'groupName',
