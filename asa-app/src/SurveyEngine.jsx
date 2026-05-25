@@ -107,6 +107,14 @@ const SurveyEngine = ({ config }) => {
     if (q.required === false) return true; // explicitly optional
     const ans = answers[q.id];
     if (q.type === 'text') return typeof ans === 'string' && ans.trim().length > 0;
+    if (q.type === 'mcq_other') {
+      if (ans === undefined || ans === '') return false;
+      if (ans === '__OTHER__') {
+        const txt = answers[q.id + '_other'];
+        return typeof txt === 'string' && txt.trim().length > 0;
+      }
+      return true;
+    }
     return ans !== undefined && ans !== '';
   };
 
@@ -138,10 +146,23 @@ const SurveyEngine = ({ config }) => {
     // Use a local sid in case React state hasn't propagated yet (safety)
     const sid = sessionId || makeId('SID');
 
+    // Flatten mcq_other answers: replace the __OTHER__ sentinel with the
+    // user-typed text, and drop the helper `<qid>_other` key. The sheet then
+    // stores a clean single-value response per question.
+    const flatAnswers = { ...answers };
+    config.questions.forEach((q) => {
+      if (q.type !== 'mcq_other') return;
+      const otherKey = `${q.id}_other`;
+      if (flatAnswers[q.id] === '__OTHER__') {
+        flatAnswers[q.id] = flatAnswers[otherKey] || '';
+      }
+      delete flatAnswers[otherKey];
+    });
+
     const payload = {
       sessionId: sid,
       ...formData,
-      answers,
+      answers: flatAnswers,
       score,
       maxScore,
       competencyLevel: tier.name,
@@ -288,6 +309,40 @@ const SurveyEngine = ({ config }) => {
               </button>
             ))}
           </div>
+        </div>
+      );
+    }
+
+    if (q.type === 'mcq_other') {
+      const otherKey = `${q.id}_other`;
+      const otherVal = answers[otherKey] || '';
+      const isOther = val === '__OTHER__';
+      return (
+        <div style={styles.mcqOtherContainer}>
+          <select
+            value={val ?? ''}
+            onChange={(e) => handleAnswerSelect(e.target.value)}
+            style={styles.select}
+          >
+            <option value="">{q.placeholder || 'Select an option…'}</option>
+            {q.options.map((option, idx) => (
+              <option key={idx} value={option}>
+                {option}
+              </option>
+            ))}
+            <option value="__OTHER__">{q.otherLabel || 'Other (please specify)'}</option>
+          </select>
+          {isOther && (
+            <textarea
+              value={otherVal}
+              onChange={(e) =>
+                setAnswers((prev) => ({ ...prev, [otherKey]: e.target.value }))
+              }
+              placeholder={q.otherPlaceholder || 'Type your response…'}
+              maxLength={q.maxLength || 400}
+              style={{ ...styles.textarea, marginTop: '12px', marginBottom: '0' }}
+            />
+          )}
         </div>
       );
     }
@@ -828,6 +883,11 @@ const styles = {
     marginBottom: '32px',
     width: '100%',
     boxSizing: 'border-box',
+  },
+
+  // ── MCQ-with-other ────────────────────────────────────────────────────────
+  mcqOtherContainer: {
+    marginBottom: '32px',
   },
 
   // ── Scale question ────────────────────────────────────────────────────────

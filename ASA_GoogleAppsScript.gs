@@ -149,14 +149,34 @@ function createSession(sessionId, adminEmail) {
 }
 
 // Create the ASA_Sessions sheet with headers on first use.
+// If the sheet was pre-created manually (without headers), auto-heal it by
+// inserting the expected header row above the existing data. Without this,
+// findSessionRow_ skips row 1 (treats it as headers) and validation fails.
+const ADMIN_HEADERS = ['Session ID', 'Admin Key', 'Created At', 'Admin Email'];
 function ensureAdminSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(ADMIN_SHEET);
   if (!sheet) {
     sheet = ss.insertSheet(ADMIN_SHEET);
-    sheet.appendRow(['Session ID', 'Admin Key', 'Created At', 'Admin Email']);
+    sheet.appendRow(ADMIN_HEADERS);
+    return sheet;
   }
+  ensureHeaderRow_(sheet, ADMIN_HEADERS);
   return sheet;
+}
+
+// If row 1 doesn't match the expected header (first cell check), insert a
+// header row above existing data so the rest of the code's i=1 iteration
+// works correctly. Idempotent — won't double-insert if headers already present.
+function ensureHeaderRow_(sheet, expectedHeaders) {
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(expectedHeaders);
+    return;
+  }
+  const firstCell = sheet.getRange(1, 1).getValue();
+  if (firstCell === expectedHeaders[0]) return; // headers already correct
+  sheet.insertRowBefore(1);
+  sheet.getRange(1, 1, 1, expectedHeaders.length).setValues([expectedHeaders]);
 }
 
 function findSessionRow_(sheet, sessionId) {
@@ -353,54 +373,45 @@ function getCompetencyTier(score) {
   return 0;
 }
 
-// Append row to sheet
+// Append row to sheet. Auto-heals missing header row (same pattern as
+// ensureAdminSheet_) so a pre-existing sheet without headers still works.
+const RESPONSE_HEADERS = [
+  'Timestamp',
+  'Session ID',
+  'Session Name',
+  'Email',
+  'Mobile',
+  'Firm Size',
+  'Score',
+  'Competency Level',
+  'Answers (JSON)',
+  'Report Sent',
+  'Report Timestamp',
+];
 function appendToSheet(sheetName, row) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(sheetName);
-
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
-    // Add headers
-    const headers = [
-      'Timestamp',
-      'Session ID',
-      'Session Name',
-      'Email',
-      'Mobile',
-      'Firm Size',
-      'Score',
-      'Competency Level',
-      'Answers (JSON)',
-      'Report Sent',
-      'Report Timestamp',
-    ];
-    sheet.appendRow(headers);
+    sheet.appendRow(RESPONSE_HEADERS);
+  } else if (sheetName === SHEET_NAME) {
+    ensureHeaderRow_(sheet, RESPONSE_HEADERS);
   }
-
   sheet.appendRow(row);
 }
 
-// Schedule email report to be sent after 15 minutes
+// Send the email report immediately. The old PropertiesService queue +
+// time-based trigger pattern was removed — the trigger was never set up in
+// practice, so reports silently never went out. Each respondent now gets
+// their report within seconds. Group stats accumulate naturally: the first
+// person in a cohort sees a thin "group report" (themselves), each
+// subsequent person sees more.
 function scheduleEmailReport(data, score, tier) {
-  // In a production environment, you'd use a time-based trigger
-  // For MVP, we'll send immediately but label it as "sent at [time]"
-  // In real deployment, use Apps Script triggers or external task scheduler
-
-  // Example: Send report after delay using PropertiesService
-  const props = PropertiesService.getScriptProperties();
-  const reportQueue = JSON.parse(props.getProperty('reportQueue') || '[]');
-
-  reportQueue.push({
-    respondent: data,
-    score: score,
-    tier: tier,
-    scheduledTime: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-  });
-
-  props.setProperty('reportQueue', JSON.stringify(reportQueue));
-
-  // For immediate testing, uncomment this:
-  // sendEmailReport(data, score, tier);
+  try {
+    sendEmailReport(data, score, tier);
+  } catch (err) {
+    Logger.log('sendEmailReport failed: ' + err);
+  }
 }
 
 // Send email report (Part 1: Group Summary, Part 2: Individual).
@@ -498,7 +509,9 @@ Years in practice: ${data.yearsInPractice || 'not provided'}
 Survey type: ${data.surveyType || 'standalone'}
 Total score: ${score} / ${MAX_SCORE}
 Competency tier: ${tier_info.name}
-Q10 self-assessment (option index): ${data.answers && data.answers.q10}
+Q10 frequency-of-use self-assessment (option index): ${data.answers && data.answers.q10}
+Q11 most-wanted improvement area: ${(data.answers && data.answers.q11) || 'not provided'}
+Q12 perceived usefulness today (1–5 scale): ${(data.answers && data.answers.q12) || 'not provided'}
 
 Question-by-question results:
 ${qDetail}

@@ -24,7 +24,7 @@ export const config = {
   title: 'SIA AI Literacy Survey',
   subtitle: 'Mapping AI adoption across Singapore architectural practice',
   description:
-    '11 questions · about 5–10 minutes · your personalised AI competency report will be emailed to you within 15 minutes.',
+    '12 questions · about 5–10 minutes · your personalised AI competency report will be emailed to you shortly after submission.',
 
   // ── Backend ─────────────────────────────────────────────────────────────────
   // Paste your Google Apps Script deployment URL into .env as VITE_BACKEND_URL
@@ -95,6 +95,20 @@ export const config = {
         { value: '6-10',  label: '6–10 years' },
         { value: '11-20', label: '11–20 years' },
         { value: '>20',   label: 'More than 20 years' },
+      ],
+    },
+    {
+      name: 'firmSize',
+      label: 'Firm Size',
+      type: 'select',
+      required: true,
+      options: [
+        { value: '',       label: 'Select firm size…' },
+        { value: 'solo',   label: 'Sole practitioner / Solo' },
+        { value: 'small',  label: 'Small (2–10 staff)' },
+        { value: 'medium', label: 'Medium (11–50 staff)' },
+        { value: 'large',  label: 'Large (51–200 staff)' },
+        { value: 'xl',     label: 'Very large (200+ staff)' },
       ],
     },
     {
@@ -266,16 +280,38 @@ export const config = {
       correct: -1, // unscored — self-assessment
     },
 
-    // ── Self-reflection (unscored, free text) ──────────────────────────────────
+    // ── Improvement area (unscored, dropdown with Other) ───────────────────────
     {
       id: 'q11',
-      type: 'text',
+      type: 'mcq_other',
       category: 'Self-Reflection',
       question:
-        'Reflecting on this survey, how useful do you find AI tools in your practice today, and what are the top 1–2 areas where you would like to improve your AI literacy?',
-      placeholder: 'Share your honest reflection — usefulness, gaps, and where you would like to grow…',
-      maxLength: 600,
-      correct: -1, // unscored — free response
+        'Which area would you most like to improve your AI literacy in?',
+      placeholder: 'Select an area…',
+      options: [
+        'Understanding what AI can and cannot do',
+        'Writing effective prompts',
+        'Critically evaluating AI outputs (hallucinations, bias)',
+        'Ethics, IP, and professional liability',
+        'Integrating AI into daily workflow / firm processes',
+      ],
+      otherLabel: 'Other (please specify)',
+      otherPlaceholder: 'Describe the area you would most like to improve…',
+      maxLength: 400,
+      correct: -1, // unscored
+    },
+
+    // ── Perceived usefulness (unscored, 1–5 scale) ─────────────────────────────
+    {
+      id: 'q12',
+      type: 'scale',
+      category: 'Self-Reflection',
+      question:
+        'How useful do you find AI tools in your current architectural practice?',
+      min: 1,
+      max: 5,
+      labels: { min: 'Not useful', max: 'Very useful' },
+      correct: -1, // unscored
     },
   ],
 
