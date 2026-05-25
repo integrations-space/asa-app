@@ -406,14 +406,54 @@ https://integrations-space.github.io/asa-app/
 ### Where to host the JSON
 
 The URL must be **publicly accessible over HTTPS** with CORS permitted. Common
-options that work out of the box:
+options that work out of the box, with worked examples:
 
-| Host | How to get a URL |
-|---|---|
-| **GitHub Gist** | Create a public gist with your JSON, click "Raw" — the `gist.githubusercontent.com/.../raw/...` URL is CORS-friendly |
-| **GitHub repo file** | Push the JSON to any public repo, use `https://raw.githubusercontent.com/<user>/<repo>/<branch>/<path>` |
-| **Apps Script web app** | A `doGet` that returns the JSON via `ContentService.createTextOutput(...).setMimeType(ContentService.MimeType.JSON)` — same pattern as this app's backend |
-| **Cloud Storage (S3, GCS, Azure)** | Public bucket with CORS headers configured for `*` or your Pages origin |
+**GitHub Gist (easiest):**
+
+1. Go to <https://gist.github.com>, paste your JSON, set the filename to e.g. `firmX-survey.json`.
+2. Click **"Create public gist"** (must be public, not secret).
+3. On the resulting gist page, click the **"Raw"** button at the top-right of the file box.
+4. The URL bar now shows something like:
+
+   ```text
+   https://gist.githubusercontent.com/integrations-space/abc123def456abc123def456/raw/ee9d5e7a/firmX-survey.json
+   ```
+
+5. That whole URL is your config URL. ⚠️ The host must be `gist.githubusercontent.com` (raw), **not** `gist.github.com` (HTML page).
+
+**GitHub repo file:**
+
+If the JSON lives in a public GitHub repo at `<user>/<repo>` on branch `<branch>` at path `<path>`, the raw URL is:
+
+```text
+https://raw.githubusercontent.com/<user>/<repo>/<branch>/<path>
+```
+
+For example, this app's own bundled config can be loaded via the runtime path:
+
+```text
+https://raw.githubusercontent.com/integrations-space/asa-app/master/asa-app/src/config/survey.config.json
+```
+
+⚠️ Use `raw.githubusercontent.com`, **not** `github.com/.../blob/...` (that's the HTML preview, not the raw file).
+
+**Apps Script web app:**
+
+Write a `doGet` that returns the JSON:
+
+```js
+function doGet() {
+  const survey = { title: "...", registration: [...], questions: [...], tiers: [...] };
+  return ContentService.createTextOutput(JSON.stringify(survey))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+```
+
+Deploy as a Web app (anyone) and use the resulting `/exec` URL.
+
+**Cloud Storage (S3, GCS, Azure):**
+
+Upload to a public bucket and configure CORS to allow `Access-Control-Allow-Origin: *` or your Pages origin.
 
 ### Behaviour
 

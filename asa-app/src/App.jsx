@@ -26,6 +26,24 @@ function isValidConfigShape(d) {
   );
 }
 
+// Diagnose common URL mistakes before/after fetch so the error banner gives
+// actionable guidance instead of just "Failed to fetch".
+function diagnoseConfigUrl(url, err) {
+  if (url.includes('/...')) {
+    return 'The URL contains "..." which looks like a placeholder from documentation. Replace it with your actual gist ID or file path.';
+  }
+  if (url.startsWith('https://gist.github.com/')) {
+    return 'This is the gist HTML page URL, not the raw JSON URL. Open the gist, click "Raw", and copy the URL from gist.githubusercontent.com.';
+  }
+  if (url.startsWith('https://github.com/') && url.includes('/blob/')) {
+    return 'This is the GitHub HTML preview URL. Replace github.com/<user>/<repo>/blob/<branch>/<path> with raw.githubusercontent.com/<user>/<repo>/<branch>/<path>.';
+  }
+  if (err && /Failed to fetch|NetworkError/i.test(err.message)) {
+    return 'Common causes: (a) the URL is wrong or 404s, (b) the host blocks cross-origin requests (the JSON file must be on a CORS-friendly public host like gist.githubusercontent.com or raw.githubusercontent.com), (c) you are offline.';
+  }
+  return null;
+}
+
 function App() {
   const [config, setConfig] = useState(defaultConfig);
   const [loading, setLoading] = useState(false);
@@ -37,6 +55,14 @@ function App() {
     const configUrl = params.get('config');
     if (!configUrl) return;
 
+    // Pre-flight check for obvious URL mistakes — no point fetching a
+    // placeholder URL just to fail.
+    const preCheck = diagnoseConfigUrl(configUrl, null);
+    if (preCheck) {
+      setError(`Custom survey URL looks wrong: ${preCheck} Showing default survey instead.`);
+      return;
+    }
+
     setLoading(true);
     fetch(configUrl)
       .then((r) => {
@@ -46,14 +72,16 @@ function App() {
       .then((data) => {
         if (!isValidConfigShape(data)) {
           throw new Error(
-            'Invalid config shape: required fields are title, registration[], questions[], tiers[].'
+            'JSON is missing required fields. Need: title (string), registration (array), questions (array), tiers (array).'
           );
         }
         setConfig(buildConfig(data));
       })
       .catch((err) => {
+        const hint = diagnoseConfigUrl(configUrl, err);
+        const tail = hint ? ` ${hint}` : '';
         setError(
-          `Could not load custom survey from ${configUrl} — ${err.message}. Showing default survey instead.`
+          `Could not load custom survey from ${configUrl} — ${err.message}.${tail} Showing default survey instead.`
         );
       })
       .finally(() => setLoading(false));
