@@ -24,7 +24,7 @@ export const config = {
   title: 'SIA AI Literacy Survey',
   subtitle: 'Mapping AI adoption across Singapore architectural practice',
   description:
-    '10 questions · about 5–10 minutes · your personalised AI competency report will be emailed to you within 15 minutes.',
+    '11 questions · about 5–10 minutes · your personalised AI competency report will be emailed to you within 15 minutes.',
 
   // ── Backend ─────────────────────────────────────────────────────────────────
   // Paste your Google Apps Script deployment URL into .env as VITE_BACKEND_URL
@@ -264,6 +264,18 @@ export const config = {
         'I regularly integrate AI tools into my daily practice across multiple project tasks',
       ],
       correct: -1, // unscored — self-assessment
+    },
+
+    // ── Self-reflection (unscored, free text) ──────────────────────────────────
+    {
+      id: 'q11',
+      type: 'text',
+      category: 'Self-Reflection',
+      question:
+        'Reflecting on this survey, how useful do you find AI tools in your practice today, and what are the top 1–2 areas where you would like to improve your AI literacy?',
+      placeholder: 'Share your honest reflection — usefulness, gaps, and where you would like to grow…',
+      maxLength: 600,
+      correct: -1, // unscored — free response
     },
   ],
 

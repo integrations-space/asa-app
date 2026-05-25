@@ -37,12 +37,14 @@ const buildInitialFormData = (config) => {
 const SurveyEngine = ({ config }) => {
   const [screen, setScreen] = useState('splash');
   const [sessionId, setSessionId] = useState('');
-  const [adminKey, setAdminKey] = useState('');
   const [formData, setFormData] = useState(() => buildInitialFormData(config));
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState({});
   const [adminData, setAdminData] = useState(null);
   const [adminPassword, setAdminPassword] = useState('');
+  const [adminSessionId, setAdminSessionId] = useState('');
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [finalScore, setFinalScore] = useState(null);
@@ -88,9 +90,9 @@ const SurveyEngine = ({ config }) => {
       alert(`Please complete: ${labels.join(', ')}`);
       return;
     }
-    // Generate IDs once here — single source of truth
-    setSessionId(makeId('SID'));
-    setAdminKey(Math.random().toString(36).slice(2, 10).toUpperCase());
+    // Use the registration sessionId as-is if provided; otherwise fall back to
+    // an auto-generated one so the response is still attributable.
+    setSessionId(formData.sessionId || makeId('SID'));
     setScreen('survey');
   };
 
@@ -146,10 +148,12 @@ const SurveyEngine = ({ config }) => {
       timestamp: new Date().toISOString(),
     };
 
-    // Persist locally — used by admin dashboard and as offline fallback
+    // Persist locally as an offline fallback only. The admin dashboard is
+    // now server-backed (Apps Script ASA_Sessions + doGet) so this cache is
+    // not used for admin views.
     try {
       const all = JSON.parse(localStorage.getItem('asa_responses') || '[]');
-      all.push({ ...payload, adminKey });
+      all.push(payload);
       localStorage.setItem('asa_responses', JSON.stringify(all));
     } catch {
       // localStorage unavailable (private browsing) — non-fatal
@@ -180,25 +184,52 @@ const SurveyEngine = ({ config }) => {
   };
 
   // ── Admin login ─────────────────────────────────────────────────────────────
-  const handleAdminLogin = (e) => {
+  // Validates against the Apps Script doGet endpoint, which checks the admin
+  // key against the ASA_Sessions sheet. The facilitator obtains the key by
+  // running createSession('ASA-XXX', 'their@email') in the Apps Script editor.
+  const handleAdminLogin = async (e) => {
     e.preventDefault();
-    if (adminPassword !== adminKey) {
-      alert('Invalid admin key');
+    setAdminError('');
+
+    const sid = (adminSessionId || formData.sessionId || sessionId || '').trim();
+    const key = (adminPassword || '').trim();
+
+    if (!sid || !key) {
+      setAdminError('Both Session ID and admin key are required.');
       return;
     }
-    try {
-      const all = JSON.parse(localStorage.getItem('asa_responses') || '[]');
-      // Group by the first registration field (e.g. groupName)
-      const groupField = config.registration[0]?.name;
-      const groupValue = formData[groupField] || '';
-      const grouped = groupValue
-        ? all.filter((r) => r[groupField] === groupValue)
-        : all.filter((r) => r.sessionId === sessionId);
-      setAdminData({ label: groupValue || 'Session', responses: grouped });
-    } catch {
-      setAdminData({ label: 'Session', responses: [] });
+    if (!config.backendUrl) {
+      setAdminError('Backend URL not configured — set VITE_BACKEND_URL and rebuild.');
+      return;
     }
-    setScreen('adminDashboard');
+
+    setAdminLoading(true);
+    try {
+      const url =
+        `${config.backendUrl}?action=getSessionData` +
+        `&sessionId=${encodeURIComponent(sid)}` +
+        `&adminKey=${encodeURIComponent(key)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data.success) {
+        setAdminError(data.message || 'Invalid session ID or admin key.');
+        setAdminLoading(false);
+        return;
+      }
+      setAdminData({
+        label: sid,
+        responses: data.responses || [],
+        stats: data.stats || null,
+        maxScore: data.maxScore ?? maxScore,
+      });
+      setAdminPassword('');
+      setScreen('adminDashboard');
+    } catch (err) {
+      setAdminError(`Could not reach the server: ${err.message}`);
+    } finally {
+      setAdminLoading(false);
+    }
   };
 
   // ── Reset ───────────────────────────────────────────────────────────────────
@@ -207,10 +238,12 @@ const SurveyEngine = ({ config }) => {
     setCurrentQuestion(0);
     setAnswers({});
     setAdminPassword('');
+    setAdminSessionId('');
+    setAdminError('');
+    setAdminData(null);
     setSubmitError('');
     setFinalScore(null);
     setSessionId('');
-    setAdminKey('');
     setScreen('splash');
   };
 
@@ -297,6 +330,64 @@ const SurveyEngine = ({ config }) => {
             <button onClick={() => setScreen('registration')} style={styles.primaryButton}>
               Start Survey
             </button>
+            <p style={styles.splashAdminLink}>
+              <button
+                type="button"
+                onClick={() => { setAdminError(''); setScreen('adminLogin'); }}
+                style={styles.linkButton}
+              >
+                Session administrator? View dashboard →
+              </button>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── ADMIN LOGIN ────────────────────────────────────────────────────── */}
+      {screen === 'adminLogin' && (
+        <div style={styles.centeredScreen}>
+          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>Session Dashboard</h2>
+            <p style={styles.resultMessage}>
+              Enter your Session ID and admin key to view live cohort data.
+              Don't have a key? Run <code>createSession('YOUR-SESSION-ID', 'your@email')</code> in
+              the Apps Script editor — the key arrives by email.
+            </p>
+            <form onSubmit={handleAdminLogin} style={styles.form}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Session ID</label>
+                <input
+                  type="text"
+                  placeholder="e.g., ASA-MORNING-01"
+                  value={adminSessionId}
+                  onChange={(e) => setAdminSessionId(e.target.value)}
+                  style={styles.input}
+                  required
+                />
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Admin Key</label>
+                <input
+                  type="password"
+                  placeholder="Enter admin key"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  style={styles.input}
+                  required
+                />
+              </div>
+              {adminError && <p style={styles.errorBanner}>{adminError}</p>}
+              <button type="submit" disabled={adminLoading} style={styles.primaryButton}>
+                {adminLoading ? 'Verifying…' : 'View Dashboard'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAdminError(''); setAdminPassword(''); setScreen('splash'); }}
+                style={styles.secondaryButton}
+              >
+                ← Back
+              </button>
+            </form>
           </div>
         </div>
       )}
@@ -474,8 +565,9 @@ const SurveyEngine = ({ config }) => {
                   onChange={(e) => setAdminPassword(e.target.value)}
                   style={styles.input}
                 />
-                <button type="submit" style={styles.adminButton}>
-                  View Session Dashboard
+                {adminError && <p style={styles.errorBanner}>{adminError}</p>}
+                <button type="submit" disabled={adminLoading} style={styles.adminButton}>
+                  {adminLoading ? 'Verifying…' : 'View Session Dashboard'}
                 </button>
               </form>
             </div>
@@ -490,6 +582,7 @@ const SurveyEngine = ({ config }) => {
       {/* ── ADMIN DASHBOARD ────────────────────────────────────────────────── */}
       {screen === 'adminDashboard' && adminData && (() => {
         const responses = adminData.responses;
+        const dashMax = adminData.maxScore ?? maxScore;
         const scores = responses.map((r) => r.score);
         const avg = scores.length
           ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
@@ -497,21 +590,21 @@ const SurveyEngine = ({ config }) => {
         const high = scores.length ? Math.max(...scores) : '—';
         const low = scores.length ? Math.min(...scores) : '—';
 
-        // Tier breakdown
         const tierCounts = config.tiers.map((t) => ({
           ...t,
-          count: responses.filter((r) => {
-            const tier = getTier(r.score);
-            return tier.name === t.name;
-          }).length,
+          count: responses.filter((r) => getTier(r.score).name === t.name).length,
         }));
+
+        // Where to go on "Back": from the splash-side admin entry point we
+        // return to splash; from the post-survey path we return to the result.
+        const backTarget = finalScore == null ? 'splash' : 'result';
 
         return (
           <div style={styles.surveyScreen}>
             <div style={styles.dashboardCard}>
               <h2 style={styles.cardTitle}>Session Dashboard</h2>
               <p style={styles.metaLine}>
-                <strong>Group:</strong> {adminData.label}
+                <strong>Session ID:</strong> {adminData.label}
               </p>
               <p style={styles.metaLine}>
                 <strong>Total Responses:</strong> {responses.length}
@@ -521,9 +614,9 @@ const SurveyEngine = ({ config }) => {
                 <>
                   <div style={styles.statsGrid}>
                     {[
-                      { label: 'Average Score', value: `${avg} / ${maxScore}` },
-                      { label: 'Highest', value: `${high} / ${maxScore}` },
-                      { label: 'Lowest',  value: `${low} / ${maxScore}` },
+                      { label: 'Average Score', value: `${avg} / ${dashMax}` },
+                      { label: 'Highest', value: `${high} / ${dashMax}` },
+                      { label: 'Lowest',  value: `${low} / ${dashMax}` },
                     ].map((s) => (
                       <div key={s.label} style={styles.statCard}>
                         <p style={styles.statLabel}>{s.label}</p>
@@ -556,12 +649,10 @@ const SurveyEngine = ({ config }) => {
                     <div key={i} style={styles.responseItem}>
                       <div style={styles.responseHeader}>
                         <p style={styles.responseName}>
-                          {r.email ||
-                            r[config.registration[0]?.name] ||
-                            `Respondent ${i + 1}`}
+                          {r.email || `Respondent ${i + 1}`}
                         </p>
                         <p style={styles.responseScore}>
-                          {r.score} / {r.maxScore ?? maxScore}
+                          {r.score} / {dashMax}
                         </p>
                       </div>
                       <p
@@ -577,7 +668,7 @@ const SurveyEngine = ({ config }) => {
                 )}
               </div>
 
-              <button onClick={() => setScreen('result')} style={styles.secondaryButton}>
+              <button onClick={() => setScreen(backTarget)} style={styles.secondaryButton}>
                 ← Back
               </button>
             </div>
@@ -634,6 +725,20 @@ const styles = {
     color: '#888780',
     lineHeight: '1.6',
     marginBottom: '32px',
+  },
+  splashAdminLink: {
+    marginTop: '24px',
+    fontSize: '13px',
+  },
+  linkButton: {
+    background: 'none',
+    border: 'none',
+    color: '#888780',
+    fontSize: '13px',
+    fontFamily: 'inherit',
+    textDecoration: 'underline',
+    cursor: 'pointer',
+    padding: 0,
   },
 
   // ── Card ─────────────────────────────────────────────────────────────────

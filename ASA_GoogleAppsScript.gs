@@ -94,10 +94,195 @@ const QUESTIONS = [
   { id: 'q10', category: 'Self-assessment', correct: -1 },
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Session admin keys — backed by the ASA_Sessions sheet
+//
+// Facilitator workflow (run BEFORE each cohort):
+//   1. Open this script in the Apps Script editor
+//   2. Add a one-line wrapper at the bottom, e.g.
+//        function mintMorning01() { createSession('ASA-MORNING-01', 'me@firm.com'); }
+//   3. Select that wrapper from the function dropdown → Run
+//   4. Retrieve the key from any of:
+//        • the email inbox (if adminEmail passed)
+//        • Executions → View logs
+//        • the ASA_Sessions sheet
+//
+// The key is required for the in-app "Session Administrator" dashboard.
+// Survey submissions still work for any sessionId regardless of pre-creation —
+// pre-creating only unlocks the dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
+function createSession(sessionId, adminEmail) {
+  if (!sessionId) throw new Error('sessionId is required, e.g. createSession("ASA-MORNING-01")');
+
+  const sheet = ensureAdminSheet_();
+  const existing = findSessionRow_(sheet, sessionId);
+  if (existing) {
+    Logger.log('Session "' + sessionId + '" already exists — admin key: ' + existing.adminKey);
+    return existing.adminKey;
+  }
+
+  const adminKey = generateAdminKey_();
+  const createdAt = new Date().toISOString();
+  sheet.appendRow([sessionId, adminKey, createdAt, adminEmail || '']);
+
+  Logger.log('Session created.');
+  Logger.log('  Session ID: ' + sessionId);
+  Logger.log('  Admin Key:  ' + adminKey);
+  Logger.log('  Created At: ' + createdAt);
+
+  if (adminEmail) {
+    try {
+      GmailApp.sendEmail(
+        adminEmail,
+        'ASA Admin Key — ' + sessionId,
+        'Session ID: ' + sessionId + '\n' +
+          'Admin Key:  ' + adminKey + '\n\n' +
+          'Use this key on the survey "Session Administrator" form to view the live cohort dashboard.\n' +
+          'Keep it private — anyone with the key can see participant responses for this session.'
+      );
+      Logger.log('  Emailed to: ' + adminEmail);
+    } catch (e) {
+      Logger.log('  WARNING: could not email key (' + e + ')');
+    }
+  }
+  return adminKey;
+}
+
+// Create the ASA_Sessions sheet with headers on first use.
+function ensureAdminSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(ADMIN_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(ADMIN_SHEET);
+    sheet.appendRow(['Session ID', 'Admin Key', 'Created At', 'Admin Email']);
+  }
+  return sheet;
+}
+
+function findSessionRow_(sheet, sessionId) {
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === sessionId) {
+      return { row: i + 1, adminKey: data[i][1], createdAt: data[i][2], adminEmail: data[i][3] };
+    }
+  }
+  return null;
+}
+
+function generateAdminKey_() {
+  // 8-char uppercase alphanumeric. Sufficient for low-stakes cohort access
+  // (~2.8 trillion combos); not a banking-grade secret.
+  return Math.random().toString(36).slice(2, 10).toUpperCase();
+}
+
+function verifyAdminKey_(sessionId, adminKey) {
+  if (!sessionId || !adminKey) return false;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ADMIN_SHEET);
+  if (!sheet) return false;
+  const found = findSessionRow_(sheet, sessionId);
+  return !!(found && found.adminKey === adminKey);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET endpoint — serves the in-app admin dashboard.
+//   ?action=getSessionData&sessionId=X&adminKey=Y → { success, responses, stats }
+// Apps Script web apps deployed as "Anyone" attach Access-Control-Allow-Origin
+// on GETs, so the React app can fetch + read JSON cross-origin without preflight.
+// ─────────────────────────────────────────────────────────────────────────────
+function doGet(e) {
+  try {
+    const action = e && e.parameter && e.parameter.action;
+    if (action === 'getSessionData') return handleGetSessionData_(e.parameter);
+    return jsonResponse_({ success: false, message: 'Unknown action' });
+  } catch (err) {
+    Logger.log('doGet error: ' + err);
+    return jsonResponse_({ success: false, message: err.toString() });
+  }
+}
+
+function handleGetSessionData_(params) {
+  const sessionId = params.sessionId;
+  const adminKey = params.adminKey;
+
+  if (!verifyAdminKey_(sessionId, adminKey)) {
+    return jsonResponse_({ success: false, message: 'Invalid session ID or admin key' });
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    return jsonResponse_({
+      success: true, sessionId: sessionId, responses: [], stats: emptyStats_(),
+    });
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const responses = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (row[1] !== sessionId) continue;
+    let answersObj = {};
+    try { answersObj = JSON.parse(row[8] || '{}'); } catch (_e) { /* malformed JSON, skip */ }
+    responses.push({
+      timestamp: row[0],
+      sessionName: row[2],
+      email: row[3],
+      mobile: row[4],
+      firmSize: row[5],
+      score: row[6],
+      competencyLevel: row[7],
+      answers: answersObj,
+      reportSent: row[9],
+      reportTimestamp: row[10],
+    });
+  }
+
+  return jsonResponse_({
+    success: true,
+    sessionId: sessionId,
+    maxScore: MAX_SCORE,
+    responses: responses,
+    stats: computeStats_(responses),
+  });
+}
+
+function computeStats_(responses) {
+  if (!responses.length) return emptyStats_();
+  const scores = responses
+    .map((r) => Number(r.score))
+    .filter((s) => !isNaN(s));
+  const tiers = {};
+  responses.forEach((r) => {
+    const tier = r.competencyLevel || 'Unknown';
+    tiers[tier] = (tiers[tier] || 0) + 1;
+  });
+  return {
+    totalResponses: responses.length,
+    averageScore: scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0,
+    maxScore: scores.length ? Math.max(...scores) : 0,
+    minScore: scores.length ? Math.min(...scores) : 0,
+    tiers: tiers,
+  };
+}
+
+function emptyStats_() {
+  return { totalResponses: 0, averageScore: 0, maxScore: 0, minScore: 0, tiers: {} };
+}
+
+function jsonResponse_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 // Main function: Handle form submission from web app
 function doPost(e) {
   try {
-    const data = JSON.parse(e.postData.contents);
+    // Browser sends Content-Type: text/plain (no-cors mode) to avoid CORS
+    // preflight. The body is still JSON — parse from postData.contents.
+    const raw = e.postData.contents;
+    const data = JSON.parse(raw);
     
     // Validate incoming data. The React app's registration field is called
     // `groupName` (see survey.config.js), so accept that — fall back to
