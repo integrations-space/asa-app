@@ -1,0 +1,33 @@
+# Node
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment files (NEVER commit these)
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# QR generator outputs (regenerated on demand)
+asa_qr_*.png
+asa_qr_codes_printable.html
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
