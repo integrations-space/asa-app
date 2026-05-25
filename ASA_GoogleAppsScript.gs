@@ -100,7 +100,11 @@ const QUESTIONS = [
 // Facilitator workflow (run BEFORE each cohort):
 //   1. Open this script in the Apps Script editor
 //   2. Add a one-line wrapper at the bottom, e.g.
-//        function mintMorning01() { createSession('ASA-MORNING-01', 'me@firm.com'); }
+//        function mintMorning01() { createSession('ASA-MORNING-01', 'me@firm.com', 12); }
+//      The 3rd arg (totalParticipants) is OPTIONAL:
+//        • Set it → group report auto-fires once 95% of that count have submitted (Option 1).
+//        • Omit it → group report only fires when the admin clicks "Send Group Report" in
+//          the dashboard (Option 2). Both paths can coexist; whichever happens first wins.
 //   3. Select that wrapper from the function dropdown → Run
 //   4. Retrieve the key from any of:
 //        • the email inbox (if adminEmail passed)
@@ -109,9 +113,9 @@ const QUESTIONS = [
 //
 // The key is required for the in-app "Session Administrator" dashboard.
 // Survey submissions still work for any sessionId regardless of pre-creation —
-// pre-creating only unlocks the dashboard.
+// pre-creating only unlocks the dashboard and group-report controls.
 // ─────────────────────────────────────────────────────────────────────────────
-function createSession(sessionId, adminEmail) {
+function createSession(sessionId, adminEmail, totalParticipants) {
   if (!sessionId) throw new Error('sessionId is required, e.g. createSession("ASA-MORNING-01")');
 
   const sheet = ensureAdminSheet_();
@@ -123,22 +127,30 @@ function createSession(sessionId, adminEmail) {
 
   const adminKey = generateAdminKey_();
   const createdAt = new Date().toISOString();
-  sheet.appendRow([sessionId, adminKey, createdAt, adminEmail || '']);
+  const total = Number(totalParticipants) > 0 ? Number(totalParticipants) : '';
+  sheet.appendRow([sessionId, adminKey, createdAt, adminEmail || '', total, false, '']);
 
   Logger.log('Session created.');
-  Logger.log('  Session ID: ' + sessionId);
-  Logger.log('  Admin Key:  ' + adminKey);
-  Logger.log('  Created At: ' + createdAt);
+  Logger.log('  Session ID:        ' + sessionId);
+  Logger.log('  Admin Key:         ' + adminKey);
+  Logger.log('  Created At:        ' + createdAt);
+  Logger.log('  Total Participants: ' + (total || '(not set — manual group-report trigger only)'));
 
   if (adminEmail) {
     try {
+      const triggerNote = total
+        ? 'Group report will auto-send once 95% (~' + Math.ceil(total * 0.95) + ' of ' + total + ') have submitted. ' +
+          'You can also send it manually from the dashboard at any time.'
+        : 'Group report will only send when YOU click "Send Group Report" in the dashboard ' +
+          '(no participant count was set).';
       GmailApp.sendEmail(
         adminEmail,
         'ASA Admin Key — ' + sessionId,
         'Session ID: ' + sessionId + '\n' +
           'Admin Key:  ' + adminKey + '\n\n' +
           'Use this key on the survey "Session Administrator" form to view the live cohort dashboard.\n' +
-          'Keep it private — anyone with the key can see participant responses for this session.'
+          'Keep it private — anyone with the key can see participant responses for this session.\n\n' +
+          triggerNote
       );
       Logger.log('  Emailed to: ' + adminEmail);
     } catch (e) {
@@ -148,11 +160,46 @@ function createSession(sessionId, adminEmail) {
   return adminKey;
 }
 
+// Flip the "group report sent" flag + timestamp so subsequent submissions
+// (and admin button clicks) don't re-send. Returns true on success, false if
+// the session row vanished.
+function markGroupReportSent_(sessionId) {
+  const sheet = ensureAdminSheet_();
+  const found = findSessionRow_(sheet, sessionId);
+  if (!found) return false;
+  sheet.getRange(found.row, ADMIN_COL.GROUP_REPORT_SENT + 1).setValue(true);
+  sheet.getRange(found.row, ADMIN_COL.GROUP_REPORT_SENT_AT + 1).setValue(new Date().toISOString());
+  return true;
+}
+
 // Create the ASA_Sessions sheet with headers on first use.
 // If the sheet was pre-created manually (without headers), auto-heal it by
 // inserting the expected header row above the existing data. Without this,
 // findSessionRow_ skips row 1 (treats it as headers) and validation fails.
-const ADMIN_HEADERS = ['Session ID', 'Admin Key', 'Created At', 'Admin Email'];
+//
+// Columns 5–7 added when group-report decoupling shipped: existing sheets
+// auto-extend (ensureHeaderRow_ pads new columns into the header row).
+const ADMIN_HEADERS = [
+  'Session ID',
+  'Admin Key',
+  'Created At',
+  'Admin Email',
+  'Total Participants',    // optional cohort size — enables 95% auto-trigger when set
+  'Group Report Sent',     // boolean; flips true the first time the cohort report fires
+  'Group Report Sent At',  // ISO timestamp of the send
+];
+// Stable column indexes (0-based) for the ASA_Sessions sheet — keep in sync
+// with ADMIN_HEADERS so callers don't sprinkle magic numbers.
+const ADMIN_COL = {
+  SESSION_ID: 0,
+  ADMIN_KEY: 1,
+  CREATED_AT: 2,
+  ADMIN_EMAIL: 3,
+  TOTAL_PARTICIPANTS: 4,
+  GROUP_REPORT_SENT: 5,
+  GROUP_REPORT_SENT_AT: 6,
+};
+
 function ensureAdminSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(ADMIN_SHEET);
@@ -165,25 +212,45 @@ function ensureAdminSheet_() {
   return sheet;
 }
 
-// If row 1 doesn't match the expected header (first cell check), insert a
-// header row above existing data so the rest of the code's i=1 iteration
-// works correctly. Idempotent — won't double-insert if headers already present.
+// Auto-heal the header row. Handles three states:
+//   1. Empty sheet               → append expected headers.
+//   2. Wrong first cell          → insert a fresh header row above data.
+//   3. Right first cell but row 1 is shorter than expectedHeaders
+//      (older schema)            → pad the missing column titles to the right.
+// State 3 is the migration path for sheets created before new columns were
+// added (e.g. Total Participants). Idempotent — re-running is a no-op.
 function ensureHeaderRow_(sheet, expectedHeaders) {
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(expectedHeaders);
     return;
   }
   const firstCell = sheet.getRange(1, 1).getValue();
-  if (firstCell === expectedHeaders[0]) return; // headers already correct
-  sheet.insertRowBefore(1);
-  sheet.getRange(1, 1, 1, expectedHeaders.length).setValues([expectedHeaders]);
+  if (firstCell !== expectedHeaders[0]) {
+    sheet.insertRowBefore(1);
+    sheet.getRange(1, 1, 1, expectedHeaders.length).setValues([expectedHeaders]);
+    return;
+  }
+  const currentWidth = sheet.getLastColumn();
+  if (currentWidth < expectedHeaders.length) {
+    const missing = expectedHeaders.slice(currentWidth);
+    sheet.getRange(1, currentWidth + 1, 1, missing.length).setValues([missing]);
+  }
 }
 
 function findSessionRow_(sheet, sessionId) {
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === sessionId) {
-      return { row: i + 1, adminKey: data[i][1], createdAt: data[i][2], adminEmail: data[i][3] };
+    if (data[i][ADMIN_COL.SESSION_ID] === sessionId) {
+      const r = data[i];
+      return {
+        row: i + 1,
+        adminKey: r[ADMIN_COL.ADMIN_KEY],
+        createdAt: r[ADMIN_COL.CREATED_AT],
+        adminEmail: r[ADMIN_COL.ADMIN_EMAIL],
+        totalParticipants: Number(r[ADMIN_COL.TOTAL_PARTICIPANTS]) || 0,
+        groupReportSent: r[ADMIN_COL.GROUP_REPORT_SENT] === true,
+        groupReportSentAt: r[ADMIN_COL.GROUP_REPORT_SENT_AT] || '',
+      };
     }
   }
   return null;
@@ -214,6 +281,7 @@ function doGet(e) {
   try {
     const action = e && e.parameter && e.parameter.action;
     if (action === 'getSessionData') return handleGetSessionData_(e.parameter);
+    if (action === 'sendGroupReport') return handleSendGroupReport_(e.parameter);
     return jsonResponse_({ success: false, message: 'Unknown action' });
   } catch (err) {
     Logger.log('doGet error: ' + err);
@@ -229,11 +297,24 @@ function handleGetSessionData_(params) {
     return jsonResponse_({ success: false, message: 'Invalid session ID or admin key' });
   }
 
+  // Surface session-level metadata so the dashboard can render the progress
+  // bar + Send Group Report button without a second round-trip.
+  const sessionMeta = findSessionRow_(ensureAdminSheet_(), sessionId);
+  const sessionInfo = {
+    totalParticipants: sessionMeta ? sessionMeta.totalParticipants : 0,
+    groupReportSent: sessionMeta ? sessionMeta.groupReportSent : false,
+    groupReportSentAt: sessionMeta ? sessionMeta.groupReportSentAt : '',
+  };
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     return jsonResponse_({
-      success: true, sessionId: sessionId, responses: [], stats: emptyStats_(),
+      success: true,
+      sessionId: sessionId,
+      responses: [],
+      stats: emptyStats_(),
+      sessionInfo: sessionInfo,
     });
   }
 
@@ -264,7 +345,23 @@ function handleGetSessionData_(params) {
     maxScore: MAX_SCORE,
     responses: responses,
     stats: computeStats_(responses),
+    sessionInfo: sessionInfo,
   });
+}
+
+// Option 2 path: admin manually fires the cohort report from the dashboard.
+// Same admin-key auth as getSessionData. Idempotent — the sheet flag prevents
+// double-sends if the admin clicks twice or races the 95% auto-trigger.
+function handleSendGroupReport_(params) {
+  const sessionId = params.sessionId;
+  const adminKey = params.adminKey;
+
+  if (!verifyAdminKey_(sessionId, adminKey)) {
+    return jsonResponse_({ success: false, message: 'Invalid session ID or admin key' });
+  }
+
+  const result = sendGroupReportToCohort_(sessionId);
+  return jsonResponse_(result);
 }
 
 function computeStats_(responses) {
@@ -400,43 +497,42 @@ function appendToSheet(sheetName, row) {
   sheet.appendRow(row);
 }
 
-// Send the email report immediately. The old PropertiesService queue +
-// time-based trigger pattern was removed — the trigger was never set up in
-// practice, so reports silently never went out. Each respondent now gets
-// their report within seconds. Group stats accumulate naturally: the first
-// person in a cohort sees a thin "group report" (themselves), each
-// subsequent person sees more.
+// Send the personal report immediately, then check whether the cohort-wide
+// group report should auto-fire (Option 1: 95% of totalParticipants reached).
+// Wrapped in try/catch so a stray AI/email failure on one respondent doesn't
+// surface to the React caller as a failed submit.
 function scheduleEmailReport(data, score, tier) {
   try {
-    sendEmailReport(data, score, tier);
+    sendIndividualReport(data, score, tier);
   } catch (err) {
-    Logger.log('sendEmailReport failed: ' + err);
+    Logger.log('sendIndividualReport failed: ' + err);
+  }
+  try {
+    maybeAutoSendGroupReport_(data.sessionId);
+  } catch (err) {
+    Logger.log('maybeAutoSendGroupReport_ failed: ' + err);
   }
 }
 
-// Send email report (Part 1: Group Summary, Part 2: Individual).
-// Tries an AI provider first for personalised, narrative reports;
-// falls back to the canned templates below if no API key is set or the
-// call fails — the participant always gets *something*.
-function sendEmailReport(data, score, tier) {
+// Send the participant's personal report (Part 2 only). The group/cohort
+// section is no longer mixed in here — it's sent as a separate email when
+// the cohort is essentially complete (see sendGroupReportToCohort_).
+//
+// Tries an AI provider first for a narrative report; falls back to the canned
+// template if no API key is set or the call fails — the participant always
+// gets *something*.
+function sendIndividualReport(data, score, tier) {
   const tier_info = COMPETENCY_TIERS[tier];
-  const groupStats = getGroupStatistics(data.sessionId);
 
-  let part1Html;
   let part2Html;
-
-  const aiResult = tryGenerateAIReport(data, score, tier_info, groupStats);
+  const aiResult = tryGenerateAIIndividualReport_(data, score, tier_info);
   if (aiResult) {
-    // AI mode: wrap the model's prose in branded HTML.
-    part1Html = `<h2>Part 1 — Group Report</h2><div>${aiResult.part1.replace(/\n/g, '<br>')}</div>`;
-    part2Html = `<h2>Part 2 — Your Individual Report</h2><div>${aiResult.part2.replace(/\n/g, '<br>')}</div>`;
+    part2Html = `<h2>Your Individual Report</h2><div>${aiResult.replace(/\n/g, '<br>')}</div>`;
   } else {
-    // Fallback mode: the canned generators (kept for offline/no-key safety).
-    part1Html = generateGroupSummaryReport(data, groupStats);
     part2Html = generateIndividualReport(data, score, tier_info);
   }
 
-  const fullEmail = buildEmailBody(data, part1Html, part2Html);
+  const fullEmail = buildIndividualEmailBody_(data, part2Html);
 
   GmailApp.sendEmail(
     data.email,
@@ -448,37 +544,142 @@ function sendEmailReport(data, score, tier) {
   markReportAsSent(data.email);
 }
 
-// Try the AI provider. Returns { part1, part2 } on success, null on any failure
-// (no key configured, network error, malformed response). Caller falls back
-// to canned text whenever this returns null.
-function tryGenerateAIReport(data, score, tier_info, groupStats) {
+// Send the cohort-wide group report (Part 1 only) to every participant who
+// has submitted in this session. Idempotent at the session level: flips the
+// "Group Report Sent" flag in ASA_Sessions so it won't fire twice, even if
+// the admin clicks the button after the 95% auto-trigger has already run.
+//
+// Returns: { success: true, sentTo: N } or { success: false, message: ... }
+function sendGroupReportToCohort_(sessionId) {
+  const sheet = ensureAdminSheet_();
+  const session = findSessionRow_(sheet, sessionId);
+  if (!session) {
+    return { success: false, message: 'Session not found: ' + sessionId };
+  }
+  if (session.groupReportSent) {
+    return { success: false, message: 'Group report already sent at ' + session.groupReportSentAt };
+  }
+
+  const responses = getSessionResponses_(sessionId);
+  if (!responses.length) {
+    return { success: false, message: 'No responses yet for ' + sessionId };
+  }
+
+  const groupStats = computeStats_(responses);
+  const groupName = responses[0].sessionName || sessionId;
+
+  // Build the group narrative once and reuse for every recipient.
+  let bodyHtml;
+  const aiText = tryGenerateAIGroupReport_(groupName, groupStats);
+  if (aiText) {
+    bodyHtml = `<h2>Cohort Report — ${groupName}</h2><div>${aiText.replace(/\n/g, '<br>')}</div>`;
+  } else {
+    bodyHtml = generateGroupSummaryReport({ groupName: groupName }, groupStats);
+  }
+  const subject = `Your SIA AI Literacy — Cohort Report — ${groupName}`;
+
+  let sent = 0;
+  responses.forEach((r) => {
+    if (!r.email) return;
+    try {
+      const html = buildGroupEmailBody_(r.email, groupName, bodyHtml);
+      GmailApp.sendEmail(
+        r.email,
+        subject,
+        'Your cohort\'s group report is attached. Please view this email in an HTML-capable client.',
+        { htmlBody: html, name: 'SIA AI Literacy Survey' }
+      );
+      sent++;
+    } catch (err) {
+      Logger.log('Group report send failed for ' + r.email + ': ' + err);
+    }
+  });
+
+  markGroupReportSent_(sessionId);
+  Logger.log('Group report sent for ' + sessionId + ' to ' + sent + ' recipient(s).');
+  return { success: true, sentTo: sent };
+}
+
+// Option 1 path: auto-fire the group report when 95% of the expected cohort
+// has submitted, but only if totalParticipants was set at session creation
+// AND the report hasn't been sent yet. No-op otherwise.
+//
+// Wrapped in a script-wide lock so two near-simultaneous final submissions
+// can't both pass the threshold check before either flips the "sent" flag —
+// without it we'd risk emailing every participant twice. tryLock(0) means
+// late arrivals skip silently rather than queueing up redundant sends.
+function maybeAutoSendGroupReport_(sessionId) {
+  if (!sessionId) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) return;
+  try {
+    const sheet = ensureAdminSheet_();
+    const session = findSessionRow_(sheet, sessionId);
+    if (!session) return;                       // session not pre-created
+    if (!session.totalParticipants) return;     // Option 2 (manual-only) session
+    if (session.groupReportSent) return;        // already sent
+
+    const responses = getSessionResponses_(sessionId);
+    const threshold = Math.ceil(session.totalParticipants * 0.95);
+    if (responses.length < threshold) return;
+
+    Logger.log(
+      'Auto-trigger: ' + responses.length + ' / ' + session.totalParticipants +
+      ' submitted (>=' + threshold + ') — sending group report.'
+    );
+    sendGroupReportToCohort_(sessionId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Try the AI provider for the personal (Part 2) report. Returns the prose
+// string on success, null on any failure. Caller wraps in HTML / falls back
+// to canned text when null.
+function tryGenerateAIIndividualReport_(data, score, tier_info) {
   const provider = detectAIProvider();
   if (!provider) return null;
 
   try {
-    const prompt = buildAIPrompt(data, score, tier_info, groupStats);
+    const prompt = buildAIIndividualPrompt_(data, score, tier_info);
     const aiText = provider.call(prompt);
-
-    const p1 = aiText.match(/\[PART 1[^\]]*\]([\s\S]*?)\[PART 2/i);
-    const p2 = aiText.match(/\[PART 2[^\]]*\]([\s\S]*)/i);
-    if (!p1 || !p2) {
-      Logger.log(provider.name + ' response missing PART markers; falling back to canned text.');
+    if (!aiText || !aiText.trim()) {
+      Logger.log(provider.name + ' returned empty individual report; falling back.');
       return null;
     }
-    Logger.log('AI report generated via ' + provider.name);
-    return { part1: p1[1].trim(), part2: p2[1].trim() };
+    Logger.log('AI individual report generated via ' + provider.name);
+    return aiText.trim();
   } catch (err) {
-    Logger.log(provider.name + ' AI call failed (' + err + '); falling back to canned text.');
+    Logger.log(provider.name + ' individual AI call failed (' + err + '); falling back.');
     return null;
   }
 }
 
-// Builds the structured prompt per AI_Survey_Workflow_Framework Section 5.
-function buildAIPrompt(data, score, tier_info, groupStats) {
-  const tierDist = Object.entries(groupStats.tiers)
-    .map(([t, c]) => `${COMPETENCY_TIERS[t] ? COMPETENCY_TIERS[t].name : t}: ${c}`)
-    .join(', ');
+// Try the AI provider for the cohort/group report. Returns the prose string
+// on success, null on any failure.
+function tryGenerateAIGroupReport_(groupName, groupStats) {
+  const provider = detectAIProvider();
+  if (!provider) return null;
 
+  try {
+    const prompt = buildAIGroupPrompt_(groupName, groupStats);
+    const aiText = provider.call(prompt);
+    if (!aiText || !aiText.trim()) {
+      Logger.log(provider.name + ' returned empty group report; falling back.');
+      return null;
+    }
+    Logger.log('AI group report generated via ' + provider.name);
+    return aiText.trim();
+  } catch (err) {
+    Logger.log(provider.name + ' group AI call failed (' + err + '); falling back.');
+    return null;
+  }
+}
+
+// Individual-only prompt (Part 2). No group stats — those go in the separate
+// cohort email so participants don't see a thin/incomplete group view on
+// early submissions.
+function buildAIIndividualPrompt_(data, score, tier_info) {
   const qLabels = [
     'Q1 Generative AI', 'Q2 AI in BIM', 'Q3 Prompt engineering',
     'Q4 Generative design', 'Q5 Hallucination', 'Q6 Ethics & legal',
@@ -494,19 +695,12 @@ function buildAIPrompt(data, score, tier_info, groupStats) {
     })
     .join('\n');
 
-  return `You are an expert AI literacy evaluator for architects in Singapore. Write a constructive, encouraging report for one survey respondent.
-
-=== GROUP DATA ===
-Group: ${data.groupName || data.sessionName || 'SIA Cohort'}
-Group size so far: ${groupStats.totalResponses}
-Group average score: ${groupStats.averageScore.toFixed(1)} / ${MAX_SCORE}
-Tier distribution: ${tierDist}
+  return `You are an expert AI literacy evaluator for architects in Singapore. Write a constructive, encouraging individual report for one survey respondent.
 
 === PARTICIPANT DATA ===
 Name: ${data.fullName || data.email}
 Firm: ${data.firmName || 'not provided'}
 Years in practice: ${data.yearsInPractice || 'not provided'}
-Survey type: ${data.surveyType || 'standalone'}
 Total score: ${score} / ${MAX_SCORE}
 Competency tier: ${tier_info.name}
 Q10 frequency-of-use self-assessment (option index): ${data.answers && data.answers.q10}
@@ -517,25 +711,72 @@ Question-by-question results:
 ${qDetail}
 
 === INSTRUCTIONS ===
-Write two clearly-separated sections, each starting with the exact bracketed marker:
-
-[PART 1 - GROUP REPORT]
-- Address the whole group by name (${data.groupName || 'the cohort'}).
-- State the average score and overall competency tier.
-- Describe the tier distribution.
-- Highlight 2 areas the group collectively did well, 2 areas to improve.
-- End with one encouraging sentence about the group's learning journey.
-- 150–200 words. Professional, warm, constructive tone.
-
-[PART 2 - INDIVIDUAL REPORT]
 - Address ${data.fullName || 'the participant'} personally.
 - Acknowledge their score (${score}/${MAX_SCORE}) and tier (${tier_info.name}).
 - Highlight 2–3 specific questions they answered correctly — explain why those concepts matter.
 - For any incorrect answers, gently explain the correct concept (no shaming).
 - Recommend 1–2 concrete next steps tailored to their tier and years in practice.
 - Reference their Q10 self-assessment naturally if it adds insight.
+- Mention that a separate cohort report will follow once the group is complete.
 - End with a motivating closing sentence.
-- 200–250 words. Encouraging, specific, professional tone.`;
+- 200–250 words. Encouraging, specific, professional tone.
+- Return ONLY the report body (no headings, no bracketed markers).`;
+}
+
+// Group-only prompt — written for the standalone cohort email that goes out
+// to all participants once the session is complete (95% threshold or admin
+// trigger). Addresses the whole cohort, never an individual.
+function buildAIGroupPrompt_(groupName, groupStats) {
+  // groupStats.tiers from computeStats_ is keyed by tier NAME (e.g.
+  // "Foundational Awareness"), not the numeric index — use it directly.
+  const tierDist = Object.entries(groupStats.tiers)
+    .map(([name, c]) => `${name}: ${c}`)
+    .join(', ');
+
+  return `You are an expert AI literacy evaluator for architects in Singapore. Write a constructive cohort-wide report.
+
+=== GROUP DATA ===
+Group: ${groupName}
+Total respondents: ${groupStats.totalResponses}
+Average score: ${groupStats.averageScore.toFixed(1)} / ${MAX_SCORE}
+Highest score: ${groupStats.maxScore} / ${MAX_SCORE}
+Lowest score: ${groupStats.minScore} / ${MAX_SCORE}
+Tier distribution: ${tierDist}
+
+=== INSTRUCTIONS ===
+- Address the whole group by name (${groupName}).
+- State the average score and the overall competency picture.
+- Describe the tier distribution and what it implies about the cohort.
+- Highlight 2 areas the group collectively did well, 2 areas to improve.
+- End with one encouraging sentence about the cohort's learning journey.
+- 180–230 words. Professional, warm, constructive tone.
+- Do NOT name or quote any individual respondent.
+- Return ONLY the report body (no headings, no bracketed markers).`;
+}
+
+// Read every response row for a session in a consistent shape. Used by both
+// the auto-trigger threshold check and the manual group-report sender.
+function getSessionResponses_(sessionId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  const out = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (row[1] !== sessionId) continue;
+    out.push({
+      timestamp: row[0],
+      sessionId: row[1],
+      sessionName: row[2],
+      email: row[3],
+      mobile: row[4],
+      firmSize: row[5],
+      score: Number(row[6]) || 0,
+      competencyLevel: row[7],
+    });
+  }
+  return out;
 }
 
 // Used by both OpenAI and Groq — both speak the same /v1/chat/completions
@@ -585,9 +826,10 @@ function callGemini(apiKey, prompt) {
   return json.candidates[0].content.parts[0].text;
 }
 
-// Wraps two HTML sections in a branded email shell. Used for both AI and
-// canned outputs so the participant experience is identical either way.
-function buildEmailBody(data, part1Html, part2Html) {
+// Personal email shell — wraps the Part 2 (individual) HTML. The cohort
+// report is now a separate later email, so we tell the participant to
+// expect it rather than dropping a thin partial group view here.
+function buildIndividualEmailBody_(data, part2Html) {
   const name = data.fullName || (data.email || '').split('@')[0];
   return `<html><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#2C2C2A;">
     <div style="background:#E04E1B;padding:24px;text-align:center;color:#fff;">
@@ -596,11 +838,29 @@ function buildEmailBody(data, part1Html, part2Html) {
     </div>
     <div style="padding:28px;">
       <p>Dear <strong>${name}</strong>,</p>
-      <p>Thank you for completing the survey. Below is your group report followed by your individual assessment.</p>
-      <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
-      <div style="background:#FFF8F3;padding:16px;border-radius:8px;line-height:1.7;">${part1Html}</div>
+      <p>Thank you for completing the survey. Below is your individual assessment. A separate cohort report will follow once the rest of your group has completed the survey.</p>
       <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
       <div style="background:#F9F9F9;padding:16px;border-radius:8px;line-height:1.7;">${part2Html}</div>
+      <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
+      <p style="font-size:12px;color:#888;">This report was generated for the SIA AI Literacy initiative. For queries, contact your training coordinator.</p>
+    </div>
+  </body></html>`;
+}
+
+// Cohort/group email shell — same brand as the personal email but framed as
+// the follow-up. Sent to every respondent once the session is complete.
+function buildGroupEmailBody_(recipientEmail, groupName, bodyHtml) {
+  const name = (recipientEmail || '').split('@')[0];
+  return `<html><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#2C2C2A;">
+    <div style="background:#E04E1B;padding:24px;text-align:center;color:#fff;">
+      <h2 style="margin:0;">SIA AI Literacy Assessment</h2>
+      <p style="color:#FDEEE6;margin:4px 0 0;">Cohort Report — ${groupName}</p>
+    </div>
+    <div style="padding:28px;">
+      <p>Dear <strong>${name}</strong>,</p>
+      <p>Your cohort has completed the survey. Below is the group's overall picture — how your peers performed and where the cohort can grow next.</p>
+      <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
+      <div style="background:#FFF8F3;padding:16px;border-radius:8px;line-height:1.7;">${bodyHtml}</div>
       <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
       <p style="font-size:12px;color:#888;">This report was generated for the SIA AI Literacy initiative. For queries, contact your training coordinator.</p>
     </div>
@@ -687,11 +947,20 @@ function getGroupStatistics(sessionId) {
   };
 }
 
-// Generate competency breakdown HTML
+// Generate competency breakdown HTML. Accepts either keying:
+//   • numeric tier index ("0".."3") from the legacy getGroupStatistics shape
+//   • tier name ("Foundational Awareness"…) from computeStats_
+// We resolve to the COMPETENCY_TIERS metadata in both cases so the emoji
+// renders regardless of which stats producer the caller used.
 function generateCompetencyBreakdown(tiers) {
+  const byName = {};
+  Object.values(COMPETENCY_TIERS).forEach((t) => { byName[t.name] = t; });
   let html = '<ul>';
   Object.entries(tiers).forEach(([key, count]) => {
-    const tier = COMPETENCY_TIERS[parseInt(key)];
+    const tier =
+      COMPETENCY_TIERS[parseInt(key, 10)] ||
+      byName[key] ||
+      { emoji: '•', name: key };
     html += `<li>${tier.emoji} ${tier.name}: ${count} participant(s)</li>`;
   });
   html += '</ul>';
@@ -793,26 +1062,6 @@ function markReportAsSent(email) {
   }
 }
 
-// Trigger function (run this as a time-based trigger every 5 minutes)
-function processReportQueue() {
-  const props = PropertiesService.getScriptProperties();
-  const reportQueue = JSON.parse(props.getProperty('reportQueue') || '[]');
-
-  const now = new Date();
-  const stillPending = [];
-
-  reportQueue.forEach((item) => {
-    const scheduledTime = new Date(item.scheduledTime);
-    if (scheduledTime <= now) {
-      sendEmailReport(item.respondent, item.score, item.tier);
-    } else {
-      stillPending.push(item);
-    }
-  });
-
-  props.setProperty('reportQueue', JSON.stringify(stillPending));
-}
-
 // Helper: Initialize sheet with headers
 function initializeSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -877,6 +1126,16 @@ function testEmailReport() {
   const score = calculateScore(testData.answers);
   const tier = getCompetencyTier(score);
 
-  sendEmailReport(testData, score, tier);
-  Logger.log('Test email sent to ' + testData.email);
+  sendIndividualReport(testData, score, tier);
+  Logger.log('Test individual email sent to ' + testData.email);
+}
+
+// Manually fire the cohort/group report end-to-end (skipping admin-key auth).
+// Use from the Apps Script editor for ad-hoc testing; in production the
+// dashboard button + 95% auto-trigger are the sanctioned entry points.
+function testGroupReport(sessionId) {
+  if (!sessionId) throw new Error('Pass a sessionId, e.g. testGroupReport("ASA-MORNING-01")');
+  const result = sendGroupReportToCohort_(sessionId);
+  Logger.log(JSON.stringify(result));
+  return result;
 }

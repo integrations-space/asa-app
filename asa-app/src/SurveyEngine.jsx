@@ -240,9 +240,15 @@ const SurveyEngine = ({ config }) => {
       }
       setAdminData({
         label: sid,
+        adminKey: key,
         responses: data.responses || [],
         stats: data.stats || null,
         maxScore: data.maxScore ?? maxScore,
+        sessionInfo: data.sessionInfo || {
+          totalParticipants: 0,
+          groupReportSent: false,
+          groupReportSentAt: '',
+        },
       });
       setAdminPassword('');
       setScreen('adminDashboard');
@@ -250,6 +256,61 @@ const SurveyEngine = ({ config }) => {
       setAdminError(`Could not reach the server: ${err.message}`);
     } finally {
       setAdminLoading(false);
+    }
+  };
+
+  // ── Group report controls ───────────────────────────────────────────────────
+  // Manually triggers the cohort-wide report from the dashboard (Option 2).
+  // Confirms first, then re-fetches session data so the UI reflects the new
+  // "sent" state without requiring a full re-login.
+  const [groupReportSending, setGroupReportSending] = useState(false);
+  const [groupReportNotice, setGroupReportNotice] = useState('');
+
+  const handleSendGroupReport = async () => {
+    if (!adminData) return;
+    const responseCount = adminData.responses.length;
+    const expected = adminData.sessionInfo?.totalParticipants || 0;
+    const pct = expected > 0 ? Math.round((responseCount / expected) * 100) : null;
+    const warning =
+      pct !== null && pct < 50
+        ? `\n\nOnly ${responseCount} of ${expected} (${pct}%) have submitted — the report will reflect a partial cohort.`
+        : '';
+    const ok = window.confirm(
+      `Send the group report to all ${responseCount} respondents now? This can only be done once.${warning}`
+    );
+    if (!ok) return;
+
+    setGroupReportSending(true);
+    setGroupReportNotice('');
+    try {
+      const url =
+        `${config.backendUrl}?action=sendGroupReport` +
+        `&sessionId=${encodeURIComponent(adminData.label)}` +
+        `&adminKey=${encodeURIComponent(adminData.adminKey)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data.success) {
+        setGroupReportNotice(data.message || 'Could not send group report.');
+        return;
+      }
+      setGroupReportNotice(`Group report sent to ${data.sentTo} recipient(s).`);
+      // Refresh session info so the button locks itself out.
+      const refreshUrl =
+        `${config.backendUrl}?action=getSessionData` +
+        `&sessionId=${encodeURIComponent(adminData.label)}` +
+        `&adminKey=${encodeURIComponent(adminData.adminKey)}`;
+      const r2 = await fetch(refreshUrl);
+      const d2 = await r2.json();
+      if (d2.success) {
+        setAdminData((prev) =>
+          prev ? { ...prev, sessionInfo: d2.sessionInfo, responses: d2.responses || prev.responses } : prev
+        );
+      }
+    } catch (err) {
+      setGroupReportNotice(`Could not reach the server: ${err.message}`);
+    } finally {
+      setGroupReportSending(false);
     }
   };
 
@@ -265,6 +326,7 @@ const SurveyEngine = ({ config }) => {
     setSubmitError('');
     setFinalScore(null);
     setSessionId('');
+    setGroupReportNotice('');
     setScreen('splash');
   };
 
@@ -654,6 +716,13 @@ const SurveyEngine = ({ config }) => {
         // return to splash; from the post-survey path we return to the result.
         const backTarget = finalScore == null ? 'splash' : 'result';
 
+        const sessionInfo = adminData.sessionInfo || {};
+        const expected = sessionInfo.totalParticipants || 0;
+        const groupSent = !!sessionInfo.groupReportSent;
+        const submissionPct = expected > 0
+          ? Math.round((responses.length / expected) * 100)
+          : null;
+
         return (
           <div style={styles.surveyScreen}>
             <div style={styles.dashboardCard}>
@@ -663,7 +732,52 @@ const SurveyEngine = ({ config }) => {
               </p>
               <p style={styles.metaLine}>
                 <strong>Total Responses:</strong> {responses.length}
+                {expected > 0 && (
+                  <> {' / '} {expected} ({submissionPct}%)</>
+                )}
               </p>
+
+              {/* Group report controls — Option 1 (auto at 95%) shows progress,
+                  Option 2 (manual) shows the trigger button. Both render the
+                  "already sent" lock-out once fired. */}
+              <div style={styles.groupReportPanel}>
+                <h3 style={styles.sectionTitle}>Cohort Group Report</h3>
+                {groupSent ? (
+                  <p style={styles.groupReportSentNote}>
+                    ✓ Group report sent
+                    {sessionInfo.groupReportSentAt
+                      ? ` at ${new Date(sessionInfo.groupReportSentAt).toLocaleString()}`
+                      : ''}
+                    .
+                  </p>
+                ) : (
+                  <>
+                    <p style={styles.groupReportHint}>
+                      {expected > 0
+                        ? `Will auto-send to all participants once ${Math.ceil(expected * 0.95)} of ${expected} have submitted. You can also send it manually below.`
+                        : 'No participant count was set for this session — the group report will only send when you trigger it manually.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleSendGroupReport}
+                      disabled={groupReportSending || responses.length === 0}
+                      style={{
+                        ...styles.primaryButton,
+                        opacity: groupReportSending || responses.length === 0 ? 0.6 : 1,
+                        cursor:
+                          groupReportSending || responses.length === 0
+                            ? 'not-allowed'
+                            : 'pointer',
+                      }}
+                    >
+                      {groupReportSending ? 'Sending…' : 'Send Group Report Now'}
+                    </button>
+                  </>
+                )}
+                {groupReportNotice && (
+                  <p style={styles.groupReportNotice}>{groupReportNotice}</p>
+                )}
+              </div>
 
               {responses.length > 0 && (
                 <>
@@ -1192,6 +1306,30 @@ const styles = {
   },
   responsesSection: {
     marginBottom: '24px',
+  },
+  groupReportPanel: {
+    backgroundColor: '#FFF8F3',
+    border: '1px solid #F4C9B5',
+    borderRadius: '8px',
+    padding: '16px',
+    margin: '20px 0',
+  },
+  groupReportHint: {
+    fontSize: '13px',
+    color: '#5F5E5A',
+    lineHeight: '1.5',
+    marginBottom: '12px',
+  },
+  groupReportSentNote: {
+    fontSize: '13px',
+    color: '#0F6E56',
+    fontWeight: '500',
+    margin: '4px 0',
+  },
+  groupReportNotice: {
+    fontSize: '13px',
+    color: '#2C2C2A',
+    marginTop: '10px',
   },
   responseItem: {
     border: '1px solid #D3D1C7',
