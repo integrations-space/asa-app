@@ -18,6 +18,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: asa-app
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +30,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: asa-app/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -39,7 +43,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: asa-app/dist
 
   deploy:
     needs: build
