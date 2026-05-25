@@ -10,11 +10,12 @@ const MAX_SCORE = 9;
 
 // Detect which AI provider to use, based on which Script Property is set.
 // Set ONE of these in Project Settings → Script Properties:
-//   GROQ_API_KEY    — free forever, ~14,400/day, Llama 3.3 70B (recommended)
-//   GEMINI_API_KEY  — free forever, 1,500/day, Google Gemini 1.5 Flash
-//   OPENAI_API_KEY  — paid (~$0.0001 per report), gpt-4o-mini
-// Priority: Groq → Gemini → OpenAI. Returns null if none set; the email
-// pipeline then falls back to canned (hardcoded) report text.
+//   GROQ_API_KEY     — free forever, ~14,400/day, Llama 3.3 70B (default)
+//   GEMINI_API_KEY   — free forever, 1,500/day, Google Gemini 1.5 Flash
+//   MISTRAL_API_KEY  — free forever, 1B tokens/month, Mistral Small
+//   DEEPSEEK_API_KEY — $10 trial credit (~37k reports) then paid; China-hosted
+// Priority: Groq → Gemini → Mistral → DeepSeek. Returns null if none set;
+// the email pipeline then falls back to canned (hardcoded) report text.
 function detectAIProvider() {
   const props = PropertiesService.getScriptProperties();
   const groqKey = props.getProperty('GROQ_API_KEY');
@@ -38,15 +39,29 @@ function detectAIProvider() {
       call: function (prompt) { return callGemini(geminiKey, prompt); },
     };
   }
-  const openaiKey = props.getProperty('OPENAI_API_KEY');
-  if (openaiKey) {
+  const mistralKey = props.getProperty('MISTRAL_API_KEY');
+  if (mistralKey) {
     return {
-      name: 'OpenAI gpt-4o-mini',
+      name: 'Mistral Small',
       call: function (prompt) {
         return callOpenAICompatible(
-          openaiKey,
-          'https://api.openai.com/v1/chat/completions',
-          'gpt-4o-mini',
+          mistralKey,
+          'https://api.mistral.ai/v1/chat/completions',
+          'mistral-small-latest',
+          prompt
+        );
+      },
+    };
+  }
+  const deepseekKey = props.getProperty('DEEPSEEK_API_KEY');
+  if (deepseekKey) {
+    return {
+      name: 'DeepSeek V3',
+      call: function (prompt) {
+        return callOpenAICompatible(
+          deepseekKey,
+          'https://api.deepseek.com/v1/chat/completions',
+          'deepseek-chat',
           prompt
         );
       },
