@@ -831,7 +831,10 @@ function callGemini(apiKey, prompt) {
 // expect it rather than dropping a thin partial group view here.
 function buildIndividualEmailBody_(data, part2Html) {
   const name = data.fullName || (data.email || '').split('@')[0];
-  return `<html><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#2C2C2A;">
+  // <meta charset> is needed for emoji (and any non-ASCII) to render correctly
+  // in Gmail — without it, the trophy/target icons in tier_info.emoji come
+  // through as mojibake (e.g. ������ instead of 🏆).
+  return `<html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#2C2C2A;">
     <div style="background:#E04E1B;padding:24px;text-align:center;color:#fff;">
       <h2 style="margin:0;">SIA AI Literacy Assessment</h2>
       <p style="color:#FDEEE6;margin:4px 0 0;">Your Personalised Competency Report</p>
@@ -851,7 +854,8 @@ function buildIndividualEmailBody_(data, part2Html) {
 // the follow-up. Sent to every respondent once the session is complete.
 function buildGroupEmailBody_(recipientEmail, groupName, bodyHtml) {
   const name = (recipientEmail || '').split('@')[0];
-  return `<html><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#2C2C2A;">
+  // <meta charset> matches buildIndividualEmailBody_ — see note there.
+  return `<html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#2C2C2A;">
     <div style="background:#E04E1B;padding:24px;text-align:center;color:#fff;">
       <h2 style="margin:0;">SIA AI Literacy Assessment</h2>
       <p style="color:#FDEEE6;margin:4px 0 0;">Cohort Report — ${groupName}</p>
@@ -880,9 +884,9 @@ function generateGroupSummaryReport(data, groupStats) {
 <h3>Group Statistics</h3>
 <ul>
   <li><strong>Total Participants:</strong> ${groupStats.totalResponses}</li>
-  <li><strong>Average Score:</strong> ${groupStats.averageScore.toFixed(1)}/10</li>
-  <li><strong>Highest Score:</strong> ${groupStats.maxScore}/10</li>
-  <li><strong>Lowest Score:</strong> ${groupStats.minScore}/10</li>
+  <li><strong>Average Score:</strong> ${groupStats.averageScore.toFixed(1)}/${MAX_SCORE}</li>
+  <li><strong>Highest Score:</strong> ${groupStats.maxScore}/${MAX_SCORE}</li>
+  <li><strong>Lowest Score:</strong> ${groupStats.minScore}/${MAX_SCORE}</li>
 </ul>
 
 <h3>Competency Breakdown</h3>
@@ -901,7 +905,7 @@ function generateIndividualReport(data, score, tier_info) {
 <h2>Your Personal AI Competency Report</h2>
 
 <h3>Your Results</h3>
-<p><strong>Score:</strong> ${score}/10</p>
+<p><strong>Score:</strong> ${score}/${MAX_SCORE}</p>
 <p><strong>Competency Level:</strong> ${tier_info.emoji} ${tier_info.name}</p>
 
 <h3>What This Means</h3>
