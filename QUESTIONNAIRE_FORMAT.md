@@ -1,39 +1,66 @@
 # Questionnaire Format Guide
 
-This app is **fully config-driven**. To change the survey — questions, registration
-fields, branding, scoring tiers — you only edit one file:
+This app is **fully config-driven**. All survey content lives in a single JSON file:
 
+```text
+asa-app/src/config/survey.config.json
 ```
-asa-app/src/config/survey.config.js
+
+This is the **canonical source of truth** for the survey — questions, registration
+fields, branding, scoring tiers. To change the survey, edit this JSON file, commit,
+and push. GitHub Actions auto-redeploys the live site within ~1 minute.
+
+> **For non-developers**: you don't need to know any JavaScript. JSON is just a
+> structured text format you can edit in Notepad, VS Code, or any online JSON
+> editor. The schema below is the format. The maintainer (developer) reviews your
+> changes and commits them.
+
+## 📌 Live working example
+
+The currently-deployed SIA AI Literacy Survey is itself a working example you can
+copy and adapt:
+
+🔗 <https://github.com/integrations-space/asa-app/blob/master/asa-app/src/config/survey.config.json>
+
+Download it, modify it for your own survey, and submit it back via PR or hand it
+to the maintainer. Everything that file contains is documented below.
+
+## Architecture in 30 seconds
+
+```text
+survey.config.json ──┐
+                     │  (build-time import)
+survey.config.js ────┤  (thin wrapper: injects backend URL,
+                     │   converts the 9999 sentinel back to Infinity)
+                     ▼
+              SurveyEngine.jsx (renders everything from config)
 ```
 
-The `SurveyEngine.jsx` component reads this config and renders everything from it.
-No other code change is needed for a new survey, as long as the new questions use
-the supported question types documented below.
-
-> **For non-developers**: you can give your facilitator/developer a filled-in copy
-> of this format (or the JSON equivalent at the bottom of this doc) and they will
-> drop it into the codebase, commit, and redeploy. The whole process takes ~5
-> minutes once the format is correct.
+You only ever edit the JSON. The `.js` wrapper exists for two runtime concerns —
+the backend URL injection (from `VITE_BACKEND_URL` env at build) and the
+`Infinity` value for the top scoring tier (since JSON can't express it natively).
 
 ---
 
 ## Top-level shape
 
-```js
-export const config = {
-  title:       '...',          // Splash-screen H1
-  subtitle:    '...',          // One-line description under the title
-  description: '...',          // Longer blurb — sets expectations on length/output
+```json
+{
+  "title":       "...",
+  "subtitle":    "...",
+  "description": "...",
 
-  backendUrl: import.meta.env.VITE_BACKEND_URL || '',
-  //          ^ leave as-is — the Apps Script URL is injected at build time
-
-  registration: [ /* fields shown before the survey starts */ ],
-  questions:    [ /* survey questions */ ],
-  tiers:        [ /* scoring bands for the final result */ ],
-};
+  "registration": [],
+  "questions":    [],
+  "tiers":        []
+}
 ```
+
+Notes:
+
+- `backendUrl` is **not** in the JSON — the runtime wrapper injects it from the build-time `VITE_BACKEND_URL` env. You don't set it here.
+- All four sections (`title`, `subtitle`, `description`, plus the three arrays) are required.
+- Comments are not allowed in JSON. If you need to annotate a survey, keep notes in a separate file or use field labels descriptively.
 
 ---
 
@@ -59,7 +86,7 @@ Each field is an object with these keys:
 Any field whose `name` matches a URL query-string parameter is auto-populated.
 For example, if your QR code links to:
 
-```
+```text
 https://example.github.io/asa-app/?sessionId=ASA-MORNING-01&groupName=SIA%20S1
 ```
 
@@ -68,23 +95,23 @@ them unless you set `readOnly: true`.
 
 ### Examples
 
-```js
-{ name: 'fullName', label: 'Your Full Name', type: 'text',  required: true },
-{ name: 'email',    label: 'Email Address',  type: 'email', required: true },
-{ name: 'mobile',   label: 'Mobile (optional)', type: 'tel', required: false },
+```json
+{ "name": "fullName", "label": "Your Full Name", "type": "text",  "required": true },
+{ "name": "email",    "label": "Email Address",  "type": "email", "required": true },
+{ "name": "mobile",   "label": "Mobile (optional)", "type": "tel", "required": false },
 {
-  name: 'yearsInPractice', label: 'Years in Practice', type: 'select', required: true,
-  options: [
-    { value: '',    label: 'Select years…' },
-    { value: '<2',  label: 'Less than 2 years' },
-    { value: '2-5', label: '2–5 years' },
-    { value: '>5',  label: 'More than 5 years' },
-  ],
+  "name": "yearsInPractice", "label": "Years in Practice", "type": "select", "required": true,
+  "options": [
+    { "value": "",    "label": "Select years…" },
+    { "value": "<2",  "label": "Less than 2 years" },
+    { "value": "2-5", "label": "2–5 years" },
+    { "value": ">5",  "label": "More than 5 years" }
+  ]
 },
 {
-  name: 'consent',
-  label: 'I consent to my responses being used for...',
-  type: 'checkbox', required: true,
+  "name": "consent",
+  "label": "I consent to my responses being used for...",
+  "type": "checkbox", "required": true
 }
 ```
 
@@ -107,23 +134,24 @@ listed below.
 
 ### Type 1 — `mcq` (multiple choice, single correct answer)
 
-```js
+```json
 {
-  id: 'q1',
-  type: 'mcq',
-  category: 'Foundational',
-  question: "What does 'generative AI' best describe?",
-  options: [
-    'Software that automates drafting tasks',                 // index 0
-    'AI that creates new content from a prompt',              // index 1  ← correct
-    'A BIM plugin for clash reports',                         // index 2
-    'A scheduling optimiser',                                 // index 3
+  "id": "q1",
+  "type": "mcq",
+  "category": "Foundational",
+  "question": "What does 'generative AI' best describe?",
+  "options": [
+    "Software that automates drafting tasks",
+    "AI that creates new content from a prompt",
+    "A BIM plugin for clash reports",
+    "A scheduling optimiser"
   ],
-  correct: 1, // zero-based index into options[]
+  "correct": 1
 }
 ```
 
 - Renders as a list of clickable cards.
+- `correct` is the **zero-based index** of the right option. In the example above, `1` means "AI that creates new content from a prompt".
 - `correct: -1` makes it unscored (still shown, still recorded, just not graded).
 
 ### Type 2 — `mcq_other` (dropdown with optional free-text "Other")
@@ -131,26 +159,28 @@ listed below.
 For self-reflection questions where you want to *guide* with common answers but
 let the participant type their own if none fit.
 
-```js
+```json
 {
-  id: 'q11',
-  type: 'mcq_other',
-  category: 'Self-Reflection',
-  question: 'Which area would you most like to improve?',
-  placeholder: 'Select an area…',
-  options: [
-    'Understanding what AI can and cannot do',
-    'Writing effective prompts',
-    'Critically evaluating AI outputs',
-    'Ethics, IP, and professional liability',
-    'Integrating AI into daily workflow',
+  "id": "q11",
+  "type": "mcq_other",
+  "category": "Self-Reflection",
+  "question": "Which area would you most like to improve?",
+  "placeholder": "Select an area…",
+  "options": [
+    "Understanding what AI can and cannot do",
+    "Writing effective prompts",
+    "Critically evaluating AI outputs",
+    "Ethics, IP, and professional liability",
+    "Integrating AI into daily workflow"
   ],
-  otherLabel:       'Other (please specify)',     // optional, has a sensible default
-  otherPlaceholder: 'Describe your area…',        // optional
-  maxLength: 400,                                  // applies only to the "Other" text box
-  correct: -1,                                     // always unscored — this is a reflection
+  "otherLabel":       "Other (please specify)",
+  "otherPlaceholder": "Describe your area…",
+  "maxLength": 400,
+  "correct": -1
 }
 ```
+
+Optional keys: `placeholder` (dropdown's default label), `otherLabel` (the "Other" option text — has a sensible default), `otherPlaceholder` (placeholder inside the text field), `maxLength` (character cap on the free-text field).
 
 - Renders as a `<select>` dropdown. Last item is the "Other" option.
 - When "Other" is picked, a text field appears below.
@@ -159,40 +189,40 @@ let the participant type their own if none fit.
 
 ### Type 3 — `text` (free-response, multi-line)
 
-```js
+```json
 {
-  id: 'q11_free',
-  type: 'text',
-  category: 'Self-Reflection',
-  question: 'In your own words, what is your biggest concern about AI in your practice?',
-  placeholder: 'Type your reflection…',           // optional
-  maxLength: 600,                                  // optional, defaults to 1000
-  correct: -1,                                     // always unscored
+  "id": "q_reflection",
+  "type": "text",
+  "category": "Self-Reflection",
+  "question": "In your own words, what is your biggest concern about AI in your practice?",
+  "placeholder": "Type your reflection…",
+  "maxLength": 600,
+  "correct": -1
 }
 ```
 
-- Renders as a `<textarea>`. Always unscored.
+- Renders as a `<textarea>`. Always unscored (`correct` must be `-1`).
+- `placeholder` and `maxLength` are optional. `maxLength` defaults to `1000`.
 
 ### Type 4 — `scale` (numeric scale, min → max)
 
-```js
+```json
 {
-  id: 'q12',
-  type: 'scale',
-  category: 'Self-Reflection',
-  question: 'How useful do you find AI tools in your current practice?',
-  min: 1,
-  max: 5,
-  labels: { min: 'Not useful', max: 'Very useful' },   // optional anchor labels
-  correct: -1,                                          // unscored
-  // or, to score a specific value:
-  // correct: 4
+  "id": "q12",
+  "type": "scale",
+  "category": "Self-Reflection",
+  "question": "How useful do you find AI tools in your current practice?",
+  "min": 1,
+  "max": 5,
+  "labels": { "min": "Not useful", "max": "Very useful" },
+  "correct": -1
 }
 ```
 
 - Renders as a row of clickable numbered buttons from `min` to `max`.
-- Set `correct: 4` (for example) to score the answer if and only if they pick `4`.
-- Set `correct: -1` for a pure rating with no "right answer".
+- `labels` is optional — adds anchor text under the endpoints. Omit to show just the numbers.
+- Set `"correct": 4` (for example) to score the answer if and only if they pick `4`.
+- Set `"correct": -1` for a pure rating with no "right answer".
 
 ---
 
@@ -202,17 +232,17 @@ Once the score is computed (number of questions with `correct !== -1` that the
 participant got right), the tier engine maps it to a competency band shown on the
 result screen.
 
-```js
-tiers: [
-  { min: 0, max: 3,        name: 'Foundational Awareness', color: '#1F8A70' },
-  { min: 4, max: 6,        name: 'Applied Practitioner',   color: '#2C7BB6' },
-  { min: 7, max: 8,        name: 'Strategic & Critical',   color: '#E04E1B' },
-  { min: 9, max: Infinity, name: 'AI Champion',            color: '#1A3C5E' },
+```json
+"tiers": [
+  { "min": 0, "max": 3,    "name": "Foundational Awareness", "color": "#1F8A70" },
+  { "min": 4, "max": 6,    "name": "Applied Practitioner",   "color": "#2C7BB6" },
+  { "min": 7, "max": 8,    "name": "Strategic & Critical",   "color": "#E04E1B" },
+  { "min": 9, "max": 9999, "name": "AI Champion",            "color": "#1A3C5E" }
 ]
 ```
 
 - Ranges are **inclusive** on both ends.
-- The last band should use `Infinity` for `max` to catch any high score.
+- The top band should use `9999` for `max` to catch any high score. The runtime wrapper converts `9999` to JavaScript's `Infinity` automatically — this is the documented sentinel because JSON has no native infinity.
 - `color` is any CSS colour — used for the tier badge border and accent.
 
 > ⚠️ **The Apps Script must mirror this.** If you rename a tier, you must also
@@ -223,20 +253,11 @@ tiers: [
 
 ## Scoring — what counts as "correct"
 
-The max score is computed dynamically from the questions list:
-
-```js
-maxScore = questions.filter(q => q.correct !== -1).length
-```
-
-If you add 9 scored questions + 3 unscored reflections, the headline score will
-read `X / 9`.
+The max score is computed dynamically from the questions list: it's the count of questions whose `correct` is not `-1`. So if you add 9 scored questions + 3 unscored reflections, the headline score reads `X / 9`.
 
 ### Mirror the `correct` index on the back-end
 
-`ASA_GoogleAppsScript.gs` has its own minimal questions array used only for
-scoring (the question text doesn't live on the back-end — only the index of the
-right answer). If you change a question's correct answer, also update:
+`ASA_GoogleAppsScript.gs` has its own minimal `QUESTIONS` array (JavaScript, not JSON) used only for scoring. The question text doesn't live on the back-end — only the index of the right answer. If you change a question's correct answer, also update:
 
 ```js
 // ASA_GoogleAppsScript.gs, near the top
@@ -247,48 +268,47 @@ const QUESTIONS = [
 ];
 ```
 
-For `mcq_other`, `text`, and `scale` questions with `correct: -1`, you can omit
-them from the back-end array entirely (scoring ignores them) — but mirroring them
-is harmless.
+For `mcq_other`, `text`, and `scale` questions with `correct: -1`, you can omit them from the back-end array entirely (scoring ignores them) — but mirroring them is harmless.
 
 ---
 
 ## Adding a new question — full walkthrough
 
-Let's say you want to add a Q13: "What size project are you working on?" as an
-unscored MCQ.
+Let's say you want to add a Q13: "What size project are you working on?" as an unscored MCQ.
 
-1. **Append to `questions[]` in `survey.config.js`:**
-   ```js
-   {
-     id: 'q13',
-     type: 'mcq',
-     category: 'Context',
-     question: 'What size of project are you currently working on?',
-     options: [
-       'Small (< $1M)',
-       'Medium ($1M – $20M)',
-       'Large ($20M – $100M)',
-       'Mega (> $100M)',
-     ],
-     correct: -1,                       // unscored — pure cohort segmentation
-   },
-   ```
+**Step 1.** Open `asa-app/src/config/survey.config.json` and append to the `questions` array:
 
-2. **Update the splash description** if the question count changed:
-   ```js
-   description: '13 questions · about 5–10 minutes · …',
-   ```
+```json
+{
+  "id": "q13",
+  "type": "mcq",
+  "category": "Context",
+  "question": "What size of project are you currently working on?",
+  "options": [
+    "Small (< $1M)",
+    "Medium ($1M – $20M)",
+    "Large ($20M – $100M)",
+    "Mega (> $100M)"
+  ],
+  "correct": -1
+}
+```
 
-3. **(Optional)** Mirror in `ASA_GoogleAppsScript.gs` for completeness:
-   ```js
-   { id: 'q13', category: 'Context', correct: -1 },
-   ```
+**Step 2.** Update the splash `description` if the question count changed:
 
-4. **Commit, push.** GH Actions auto-builds and deploys.
+```json
+"description": "13 questions · about 5–10 minutes · …"
+```
 
-5. **(Optional)** If you also added back-end changes, paste the updated `.gs`
-   into the Apps Script editor → Manage deployments → ✏️ → "New version" → Deploy.
+**Step 3** *(optional)*. Mirror in `ASA_GoogleAppsScript.gs` for completeness:
+
+```js
+{ id: 'q13', category: 'Context', correct: -1 },
+```
+
+**Step 4.** Commit, push. GitHub Actions auto-builds and deploys to GitHub Pages within ~1 minute.
+
+**Step 5** *(only if you touched `.gs`)*. Paste the updated Apps Script into the editor → Manage deployments → ✏️ → "New version" → Deploy.
 
 ---
 
@@ -360,17 +380,52 @@ structure as a plain JSON document. They send you this, you paste it into
 
 ---
 
-## Future: runtime config loader (not yet built)
+## Runtime override — swap surveys without redeploying
 
-Right now, swapping the survey requires a git commit + GH Pages redeploy.
-If you'd like end-users to point the *same deployed app* at a different survey
-config (e.g., via a URL like `?config=https://hosted-config.json`), tell me and
-I'll add the loader. Trade-offs:
+The deployed app accepts a `?config=<URL>` query parameter. When present, the
+app fetches the JSON from that URL, validates its shape against the schema
+above, and uses it in place of the bundled `survey.config.json`. This means a
+single deployed instance can host any number of surveys — one URL per cohort,
+no redeploy required.
 
-- ➕ No redeploy required per new survey
-- ➕ Same domain, different surveys (different QR codes for different cohorts)
-- ➖ Adds runtime validation (the config has to be checked before render)
-- ➖ Public hosting required for the config JSON (or an Apps Script that returns it)
+### Usage
 
-Currently this is unbuilt. The build-time config is faster to iterate on for a
-single survey and avoids the validation surface.
+```text
+https://integrations-space.github.io/asa-app/?config=https://example.com/my-survey.json
+```
+
+Combine with the existing pre-fill params for a complete QR-code-ready link:
+
+```text
+https://integrations-space.github.io/asa-app/
+  ?config=https://example.com/firmX-survey.json
+  &sessionId=ASA-FIRMX-2026-06-01
+  &groupName=Firm%20X%20Cohort
+```
+
+### Where to host the JSON
+
+The URL must be **publicly accessible over HTTPS** with CORS permitted. Common
+options that work out of the box:
+
+| Host | How to get a URL |
+|---|---|
+| **GitHub Gist** | Create a public gist with your JSON, click "Raw" — the `gist.githubusercontent.com/.../raw/...` URL is CORS-friendly |
+| **GitHub repo file** | Push the JSON to any public repo, use `https://raw.githubusercontent.com/<user>/<repo>/<branch>/<path>` |
+| **Apps Script web app** | A `doGet` that returns the JSON via `ContentService.createTextOutput(...).setMimeType(ContentService.MimeType.JSON)` — same pattern as this app's backend |
+| **Cloud Storage (S3, GCS, Azure)** | Public bucket with CORS headers configured for `*` or your Pages origin |
+
+### Behaviour
+
+| Scenario | What the user sees |
+|---|---|
+| `?config=URL` present and fetches OK + valid schema | The custom survey, end-to-end |
+| `?config=URL` present but fetch fails (404, network, CORS) | Red banner explaining the failure, **default bundled survey shown underneath** so the user can still complete *something* |
+| `?config=URL` present but JSON has invalid shape | Red banner naming the missing fields, default survey shown |
+| No `?config=` param | Default bundled survey, no banner |
+
+### Important caveats
+
+- **The backend stays the same.** Submissions still POST to the Google Apps Script bound to *this* deployment (`VITE_BACKEND_URL`). The runtime config only changes what *questions* the participant sees — not where the data goes. If you want a totally separate backend per survey, you need a separate deployment.
+- **Validation is shallow.** The runtime check only verifies that `title`, `registration`, `questions`, and `tiers` exist with the right types. It doesn't deeply validate each question's `type`-specific fields — invalid question objects may render oddly but won't crash the app.
+- **Scoring rules on the back-end don't update automatically.** If your custom survey has different `correct` indices than the bundled one, scores stored in the sheet will be computed against the back-end's `QUESTIONS` array (which mirrors the bundled survey). For a fully-custom survey, you also need a back-end deploy that mirrors the new `correct` values — or you accept that the dashboard's score column reflects bundled-survey scoring against custom-survey answers, which is meaningless. **Safest for custom surveys: set all `correct` to `-1` and use the survey purely for data collection, not scoring.**
