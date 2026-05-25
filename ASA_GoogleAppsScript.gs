@@ -867,10 +867,14 @@ function buildGroupEmailBody_(recipientEmail, groupName, bodyHtml) {
   </body></html>`;
 }
 
-// Generate group summary for Part 1
+// Generate the cohort summary report (canned fallback used when no AI provider
+// is configured or the AI call fails). The "Part 1/Part 2" framing was dropped
+// when the personal + cohort emails were decoupled — each email now stands
+// alone, so the heading no longer needs to position itself relative to a
+// sibling section.
 function generateGroupSummaryReport(data, groupStats) {
   return `
-<h2>Part 1: Your Cohort's AI Literacy Overview</h2>
+<h2>Your Cohort's AI Literacy Overview</h2>
 <p>Session: <strong>${data.groupName || data.sessionName}</strong></p>
 
 <h3>Group Statistics</h3>
@@ -889,10 +893,12 @@ ${generateGroupInsights(groupStats)}
 `;
 }
 
-// Generate individual report for Part 2
+// Generate the personal report (canned fallback used when no AI provider
+// is configured or the AI call fails). See note on generateGroupSummaryReport
+// for why the "Part 2" framing was removed.
 function generateIndividualReport(data, score, tier_info) {
   return `
-<h2>Part 2: Your Personal AI Competency Report</h2>
+<h2>Your Personal AI Competency Report</h2>
 
 <h3>Your Results</h3>
 <p><strong>Score:</strong> ${score}/10</p>
