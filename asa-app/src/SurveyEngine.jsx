@@ -155,15 +155,19 @@ const SurveyEngine = ({ config }) => {
       // localStorage unavailable (private browsing) — non-fatal
     }
 
-    // POST to backend if a URL is configured
+    // POST to backend if a URL is configured.
+    // Google Apps Script requires no-cors mode — the response is opaque but
+    // the data reaches the sheet. If the fetch itself throws (network down,
+    // URL missing), we fall back gracefully.
     if (config.backendUrl) {
       try {
-        const res = await fetch(config.backendUrl, {
+        await fetch(config.backendUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+        // With no-cors the response is opaque — no error thrown means success.
       } catch {
         setSubmitError(
           'Could not reach the server — your response is saved locally and will not trigger an email report.'
