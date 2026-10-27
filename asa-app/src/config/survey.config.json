@@ -1,6 +1,6 @@
 {
-  "title": "SIA AI Literacy Survey",
-  "subtitle": "Mapping AI adoption across Singapore architectural practice",
+  "title": "AI Survey Form",
+  "subtitle": "Mapping AI adoption across architectural practice",
   "description": "12 questions · about 5–10 minutes · your personalised AI competency report will be emailed to you shortly after submission.",
 
   "registration": [
@@ -15,7 +15,7 @@
       "name": "groupName",
       "label": "Cohort / Session Name",
       "type": "text",
-      "placeholder": "e.g., SIA Roundtable Session 1",
+      "placeholder": "e.g., Roundtable Session 1",
       "required": true
     },
     {
@@ -88,7 +88,7 @@
     },
     {
       "name": "consent",
-      "label": "I consent to my responses being used by SIA for AI training programme planning, in accordance with PDPA. My email and mobile will not be shared with third parties.",
+      "label": "I consent to my responses being used for AI training programme planning, in accordance with PDPA. My email and mobile will not be shared with third parties.",
       "type": "checkbox",
       "required": true
     }
