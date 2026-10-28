@@ -536,9 +536,9 @@ function sendIndividualReport(data, score, tier) {
 
   GmailApp.sendEmail(
     data.email,
-    `Your SIA AI Literacy Report — ${data.groupName || data.sessionName || 'SIA'}`,
+    `Your AI Literacy Report — ${data.groupName || data.sessionName || 'AI Survey'}`,
     'Your personalised AI competency report is attached. Please view this email in an HTML-capable client.',
-    { htmlBody: fullEmail, name: 'SIA AI Literacy Survey' }
+    { htmlBody: fullEmail, name: 'AI Survey Form' }
   );
 
   markReportAsSent(data.email);
@@ -576,7 +576,7 @@ function sendGroupReportToCohort_(sessionId) {
   } else {
     bodyHtml = generateGroupSummaryReport({ groupName: groupName }, groupStats);
   }
-  const subject = `Your SIA AI Literacy — Cohort Report — ${groupName}`;
+  const subject = `Your AI Literacy — Cohort Report — ${groupName}`;
 
   let sent = 0;
   responses.forEach((r) => {
@@ -587,7 +587,7 @@ function sendGroupReportToCohort_(sessionId) {
         r.email,
         subject,
         'Your cohort\'s group report is attached. Please view this email in an HTML-capable client.',
-        { htmlBody: html, name: 'SIA AI Literacy Survey' }
+        { htmlBody: html, name: 'AI Survey Form' }
       );
       sent++;
     } catch (err) {
@@ -695,7 +695,7 @@ function buildAIIndividualPrompt_(data, score, tier_info) {
     })
     .join('\n');
 
-  return `You are an expert AI literacy evaluator for architects in Singapore. Write a constructive, encouraging individual report for one survey respondent.
+  return `You are an expert AI literacy evaluator for architects. Write a constructive, encouraging individual report for one survey respondent.
 
 === PARTICIPANT DATA ===
 Name: ${data.fullName || data.email}
@@ -733,7 +733,7 @@ function buildAIGroupPrompt_(groupName, groupStats) {
     .map(([name, c]) => `${name}: ${c}`)
     .join(', ');
 
-  return `You are an expert AI literacy evaluator for architects in Singapore. Write a constructive cohort-wide report.
+  return `You are an expert AI literacy evaluator for architects. Write a constructive cohort-wide report.
 
 === GROUP DATA ===
 Group: ${groupName}
@@ -836,7 +836,7 @@ function buildIndividualEmailBody_(data, part2Html) {
   // through as mojibake (e.g. ������ instead of 🏆).
   return `<html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#2C2C2A;">
     <div style="background:#E04E1B;padding:24px;text-align:center;color:#fff;">
-      <h2 style="margin:0;">SIA AI Literacy Assessment</h2>
+      <h2 style="margin:0;">AI Literacy Assessment</h2>
       <p style="color:#FDEEE6;margin:4px 0 0;">Your Personalised Competency Report</p>
     </div>
     <div style="padding:28px;">
@@ -845,7 +845,7 @@ function buildIndividualEmailBody_(data, part2Html) {
       <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
       <div style="background:#F9F9F9;padding:16px;border-radius:8px;line-height:1.7;">${part2Html}</div>
       <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
-      <p style="font-size:12px;color:#888;">This report was generated for the SIA AI Literacy initiative. For queries, contact your training coordinator.</p>
+      <p style="font-size:12px;color:#888;">This report was generated for the AI Literacy initiative. For queries, contact your training coordinator.</p>
     </div>
   </body></html>`;
 }
@@ -857,7 +857,7 @@ function buildGroupEmailBody_(recipientEmail, groupName, bodyHtml) {
   // <meta charset> matches buildIndividualEmailBody_ — see note there.
   return `<html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;max-width:680px;margin:auto;color:#2C2C2A;">
     <div style="background:#E04E1B;padding:24px;text-align:center;color:#fff;">
-      <h2 style="margin:0;">SIA AI Literacy Assessment</h2>
+      <h2 style="margin:0;">AI Literacy Assessment</h2>
       <p style="color:#FDEEE6;margin:4px 0 0;">Cohort Report — ${groupName}</p>
     </div>
     <div style="padding:28px;">
@@ -866,7 +866,7 @@ function buildGroupEmailBody_(recipientEmail, groupName, bodyHtml) {
       <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
       <div style="background:#FFF8F3;padding:16px;border-radius:8px;line-height:1.7;">${bodyHtml}</div>
       <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
-      <p style="font-size:12px;color:#888;">This report was generated for the SIA AI Literacy initiative. For queries, contact your training coordinator.</p>
+      <p style="font-size:12px;color:#888;">This report was generated for the AI Literacy initiative. For queries, contact your training coordinator.</p>
     </div>
   </body></html>`;
 }
