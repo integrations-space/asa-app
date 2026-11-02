@@ -230,7 +230,7 @@ def main():
         print("    python qr_generator.py https://asa-app.vercel.app --session ASA-MORNING-01")
         print("    python qr_generator.py https://asa-app.vercel.app"
               " --session ASA-PRECOURSE-2026-05-25")
-        print("    python qr_generator.py https://asa-app.vercel.app --session ASA-SIA-BATCH-2")
+        print("    python qr_generator.py https://asa-app.vercel.app --session ASA-BATCH-2")
         print("\n  Batch generation (one QR per cohort):")
         print("    python qr_generator.py https://asa-app.vercel.app --batch")
         print("\nThe Session ID is passed as ?group=... in the URL and pre-fills")

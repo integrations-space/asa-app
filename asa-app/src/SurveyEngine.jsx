@@ -10,11 +10,15 @@ import { useState } from 'react';
 // To change the survey content, edit survey.config.js — not this file.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Session metadata that is not shown on the registration form but can still be
+// supplied via the QR-code URL so responses group into a cohort for the admin
+// dashboard and group report, e.g.
+//   https://app.example.com/?sessionId=ASA-MORNING-01&groupName=Session%201
+const HIDDEN_URL_FIELDS = ['sessionId', 'groupName'];
+
 // Build the initial registration form values. Any field whose `name` matches a
-// URL query-string param is pre-filled — facilitators encode session metadata
-// in the QR-code URL, e.g.
-//   https://app.example.com/?sessionId=ASA-MORNING-01&groupName=SIA%20S1
-// For backwards-compat, legacy `?group=` also fills `groupName`.
+// URL query-string param is pre-filled. For backwards-compat, legacy `?group=`
+// also fills `groupName`.
 const buildInitialFormData = (config) => {
   const init = {};
   config.registration.forEach((f) => {
@@ -26,8 +30,12 @@ const buildInitialFormData = (config) => {
       const val = params.get(f.name);
       if (val !== null) init[f.name] = f.type === 'checkbox' ? val === 'true' : val;
     });
+    HIDDEN_URL_FIELDS.forEach((name) => {
+      const val = params.get(name);
+      if (val !== null && !(name in init)) init[name] = val;
+    });
     const legacyGroup = params.get('group');
-    if (legacyGroup && 'groupName' in init && !init.groupName) {
+    if (legacyGroup && !init.groupName) {
       init.groupName = legacyGroup;
     }
   }
@@ -160,8 +168,9 @@ const SurveyEngine = ({ config }) => {
     });
 
     const payload = {
-      sessionId: sid,
       ...formData,
+      sessionId: sid,
+      groupName: formData.groupName || config.title,
       answers: flatAnswers,
       score,
       maxScore,

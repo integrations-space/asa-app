@@ -5,17 +5,10 @@
 
   "registration": [
     {
-      "name": "sessionId",
-      "label": "Session ID",
+      "name": "country",
+      "label": "Country",
       "type": "text",
-      "placeholder": "e.g., ASA-MORNING-01",
-      "required": true
-    },
-    {
-      "name": "groupName",
-      "label": "Cohort / Session Name",
-      "type": "text",
-      "placeholder": "e.g., Roundtable Session 1",
+      "placeholder": "e.g., Singapore",
       "required": true
     },
     {
@@ -31,18 +24,6 @@
       "type": "text",
       "placeholder": "",
       "required": true
-    },
-    {
-      "name": "surveyType",
-      "label": "Survey Type",
-      "type": "select",
-      "required": true,
-      "options": [
-        { "value": "",           "label": "Select survey type…" },
-        { "value": "PRECOURSE",  "label": "Pre-course (before training)" },
-        { "value": "POSTCOURSE", "label": "Post-course (after training)" },
-        { "value": "STANDALONE", "label": "Standalone assessment" }
-      ]
     },
     {
       "name": "yearsInPractice",

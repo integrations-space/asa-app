@@ -17,7 +17,7 @@ and push. GitHub Actions auto-redeploys the live site within ~1 minute.
 
 ## 📌 Live working example
 
-The currently-deployed SIA AI Literacy Survey is itself a working example you can
+The currently-deployed AI Literacy Survey is itself a working example you can
 copy and adapt:
 
 🔗 <https://github.com/integrations-space/asa-app/blob/master/asa-app/src/config/survey.config.json>
@@ -87,11 +87,13 @@ Any field whose `name` matches a URL query-string parameter is auto-populated.
 For example, if your QR code links to:
 
 ```text
-https://example.github.io/asa-app/?sessionId=ASA-MORNING-01&groupName=SIA%20S1
+https://example.github.io/asa-app/?sessionId=ASA-MORNING-01&groupName=Session%201
 ```
 
-then `sessionId` and `groupName` fields are pre-filled. Users can still edit
-them unless you set `readOnly: true`.
+then `sessionId` and `groupName` are captured with the response even though
+they are not shown on the registration form (they group responses into a
+cohort for the admin dashboard and group report). Visible fields pre-filled
+this way can still be edited unless you set `readOnly: true`.
 
 ### Examples
 

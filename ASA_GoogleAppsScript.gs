@@ -401,11 +401,11 @@ function doPost(e) {
     const raw = e.postData.contents;
     const data = JSON.parse(raw);
     
-    // Validate incoming data. The React app's registration field is called
-    // `groupName` (see survey.config.js), so accept that — fall back to
-    // `sessionName` for backwards-compat with any legacy clients.
-    const groupName = data.groupName || data.sessionName;
-    if (!data.email || !groupName) {
+    // Validate incoming data. `groupName` is optional (supplied via the QR-code
+    // URL when used) — fall back to `sessionName` for legacy clients, then to
+    // the session ID.
+    const groupName = data.groupName || data.sessionName || data.sessionId || 'AI Survey';
+    if (!data.email) {
       return ContentService.createTextOutput(
         JSON.stringify({ success: false, message: 'Missing required fields' })
       ).setMimeType(ContentService.MimeType.JSON);
@@ -428,6 +428,7 @@ function doPost(e) {
       JSON.stringify(data.answers),
       false, // Report sent
       '', // Report timestamp
+      data.country || '',
     ];
 
     appendToSheet(SHEET_NAME, row);
@@ -484,6 +485,7 @@ const RESPONSE_HEADERS = [
   'Answers (JSON)',
   'Report Sent',
   'Report Timestamp',
+  'Country',
 ];
 function appendToSheet(sheetName, row) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();

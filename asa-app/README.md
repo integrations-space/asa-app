@@ -1,6 +1,6 @@
-# SIA AI Literacy Survey App (ASA)
+# AI Literacy Survey App (ASA)
 
-A web-based AI competency survey built for the **Singapore Institute of Architects (SIA)** to map AI adoption across Singapore's architectural practice.
+A web-based AI competency survey to map AI adoption across architectural practice.
 
 **Live:** https://integrations-space.github.io/asa-app/
 
@@ -54,7 +54,7 @@ Gmail sends HTML email to participant
 1. Generate a unique Session ID: `ASA-{IDENTIFIER}-{DATE}` (e.g. `ASA-MORNING-01`)
 2. Embed it in the QR code URL:
    ```
-   https://integrations-space.github.io/asa-app/?sessionId=ASA-MORNING-01&groupName=SIA%20Session%201
+   https://integrations-space.github.io/asa-app/?sessionId=ASA-MORNING-01&groupName=Session%201
    ```
 3. All responses from that cohort are tagged with the Session ID in the Google Sheet
 

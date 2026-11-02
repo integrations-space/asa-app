@@ -445,7 +445,7 @@ A: Q10–Q12 are reflection / self-assessment items (`correct: -1` in the questi
 
 ## 📄 License & Attribution
 
-This survey system is based on **10 MCQs assessing AI literacy in architectural practice** (from SIA training curriculum).
+This survey system is based on **10 MCQs assessing AI literacy in architectural practice**.
 
 Feel free to:
 - ✅ Use, modify, share
